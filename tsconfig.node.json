@@ -1,0 +1,26 @@
+{
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.node.tsbuildinfo",
+    "target": "es2023",
+    "lib": ["ES2023"],
+    "types": ["node"],
+    "skipLibCheck": true,
+
+    /* Bundler mode */
+    "module": "nodenext",
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+
+    /* Linting */
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "erasableSyntaxOnly": true,
+    "noFallthroughCasesInSwitch": true
+  },
+  /* ★ 加入 plugins/ 才能让 `vue-tsc -b` 检查构建期插件（含手写的 mp3 解析器）——
+     只写 vite.config.ts 的话它们完全不参与类型检查。
+     生成器是 .mjs（不带类型），所以不用列进来。 */
+  "include": ["vite.config.ts", "plugins/**/*.ts"]
+}

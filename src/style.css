@@ -1,0 +1,790 @@
+/* ==========================================================================
+   设计系统 —— 令牌层
+   数值全部照搬 mbrown.work 的源码（从其 webflow CSS 中提取）：
+   · 字号：h1=6rem / h2=1.375rem / h3=1rem / h4=.75rem / 正文=1rem / 小=0.875rem
+   · 字体三档：正文(primary) / 小标题(secondary 等宽) / 巨型(tertiary 超粗压缩)
+   · 间距：section 4rem / 8rem / 12rem，页顶 15rem，区块顶 40vh
+   · 24 列栅格，容器 max-width = 100vw - margin*2
+   ========================================================================== */
+
+:root {
+  /* --- 站点栅格 --- */
+  --site-margin: 1rem;
+  --gutter: 1rem;
+  --cols: 24;
+  --container-main: calc(100vw - var(--site-margin) * 2);
+
+  /* ★★ 桌面端内容边距。解决「内容贴着左侧走」的根因：
+   *
+   *   `100vw` 把**滚动条宽度也算进去**（实测 innerWidth 1440、
+   *   而 clientWidth 只有 1425，滚动条 15px）。
+   *   于是容器算出 `1440 - 32 = 1408`，在 1425 的可用宽度里居中后
+   *   左右只剩 **8.3px** —— 设计意图的 16px 被截了一半多。
+   *   导航用的是同一个变量，所以 logo 也贴在了 8.3px。
+   *
+   *   参考站用 `100vw` 不会出问题，是因为它的滚动条是**覆盖式**
+   *   （macOS），不占布局宽度；Windows 的经典滚动条会占，差值就被吃掉了。
+   *
+   * ★ 修法：用 `min()` 把两侧下限锁在 1rem。窗口再窄也只是精确 16px，
+   *   不会继续缩水。不采用「加一个滚动条宽度的变量」那种写法 ——
+   *   滚动条宽度跨平台不一致，写死会再次踩坑。
+   *
+   * ★ 只在桌面端生效（≤900px 样式会重设这个值）：
+   *   移动端滚动条是覆盖式的，没有这个问题；
+   *   而且窄屏上 1rem 的固定下限加上「减 site-margin」会推大留白。 */
+  --desktop-pad: min(var(--site-margin), calc((100vw - 100%) / 2));
+
+  /* ★ 列宽令牌已删除（2026-09-22）。
+     这里曾有 `--col-w` / `--col-plus` 与 `--col-3/4/5/8/10/13/14/24`
+     整套 24 列栅格变量（照搬原站）。但本项目**没有任何地方用过它们**
+     （实测零引用）—— 布局用的是 `.u-container` + `flex`/`grid`，
+     不是「按列宽定位」。
+     需要按列排版时再加，别先把整套栅格摆上。
+     （`.u-grid` 用的是 `--cols`，那个还在。） */
+
+  /* 导航高度：**唯一真相来源**。
+     ★★ .nav 直接 `height: var(--nav-h)`，不再靠子元素内边距撑开 ——
+       所以改字号/内边距**不会**意外改变导航高度，也就不存在
+       以前那种「改了内边距忘改 --nav-h」的静默错位。
+       改这里的值 = 直接改导航高度，同时 hero 的让位也自动跟上
+       （hero 用 padding-top: var(--nav-h)）。
+     ★ 约束：子元素内容必须装得进这个高度，否则会溢出
+       （表现为 logo 不垂直居中）。各档实测内容高：
+          >767px   16px 字 + 1.5rem 内距 → 72px
+          521~767px 字样 clamp（≤16px）→ 69px
+          ≤520px    字样 clamp → 64px
+          ≤345px    字样 clamp 触底 10px → 56px
+       ★ 曾在这里写死过「14px / 12px」两档 —— 那是**已被否掉**的方案
+         （中间 420px 是死区），现用 `clamp(10px, 2.2vw, 16px)` 连续缩放。
+     各档的调整见文件末尾断点。 */
+  --nav-h: 4.5rem;
+
+  /* --- 配色 ---
+     Persona 3 风格：整体是一块**由浅到深**的蓝色渐变，越往下越沉。
+     `--brand` 是最深的那个锚点色，也是唯一被显式指定的颜色。 */
+  --brand: #0631bb;
+
+  /* 渐变（由 --brand 派生，不引入新色相）：
+       底部 --bg : = --brand，最深
+     ★ 顶部**不要调太亮**：Persona 3 的氛围是「深邃冷蓝」，不是亮蓝。
+       实测顶部若用 58% 混合，白字对比度会到 20.9:1（过亮、发飘）；
+       改成 74% 后约 13:1 —— 仍然远超 WCAG AA，观感沉稳得多。
+       偏青（+少量青绿）比单纯加白更像 P3 的冷调，加白会发灰、丢饱和。 */
+  --bg-top: color-mix(in srgb, var(--brand) 74%, #4fd2ff);
+  --bg: var(--brand);
+
+  /* ---- hero 音频线相关的颜色 ----
+   *
+   * 三层结构（越来越深，符合「从上往下渐沉」）：
+   *   --bg-top    #195bcc  最浅
+   *   --hero-line #1049d0  音频线处的落点（比 fill 亮一档）
+   *   --hero-fill #0735bd  音频线以下的实心填充（用户指定）
+   *
+   * ★★ 关键：渐变**不能**在音频线处收敛到 --hero-fill！
+   *   若两者同色，波形往上涌时只是同色盖同色，肉眼完全看不出变化
+   *   （这正是第一版"不明显"的根因）。
+   *   现在 line 与 fill 的 WCAG 亮度对比 **1.28:1** ——
+   *   既能让填充起伏一眼可见，又不会像调试色那样扎眼。
+   *
+   * ★ 选色约束（换色时请守住）：
+   *   1) --hero-line 必须比 --bg-top **暗**，否则渐变会"先沉后浮"、破坏观感
+   *      （调试时用过的 #3b8cff 亮度 0.269 > top 的 0.1205，就是这个问题）
+   *   2) --hero-line 与 --hero-fill 的对比要 ≥1.2:1，否则看不出起伏
+   *      参考值：#3b8cff=2.83（太强） #1350d5=1.39 #1049d0=1.28（采用） #0d44c9=1.19（偏弱）
+   *   3) 三者与白字的对比度都要 ≥4.5（WCAG AA），实测均 >9:1，安全 */
+  --hero-line: #1049d0;
+  --hero-fill: #0735bd;
+
+  /* ★ --bg 仍保持"单一实色"语义：它是页面最深处的底色，也是各处
+     `color: var(--bg)`（反色文字）用的颜色。渐变只作为最底层覆盖在上面。
+     ★ 末端色用 --hero-fill：hero 之下的页面区域也要落到同一个色，
+       否则滚动过 hero 底边时会有接缝。
+     ★ 停止点摊开到接近底部（98%），否则会在中段就到底色、下半屏变平，
+       失去"越往下越沉"的纵深感。 */
+  --bg-grad: linear-gradient(
+    180deg,
+    var(--bg-top) 0%,
+    var(--hero-line) 34%,
+    var(--hero-fill) 78%,
+    var(--hero-fill) 98%
+  );
+
+  /* ★ 文字色：**米色（暖白）**，不是纯白。
+   * 用户要求「去掉纯白，改为米色」。
+   * 0xFFF8E7 是低饱和的暖白（偏黄一档），在深蓝底上比纯白柔和，
+   * 也与渐变顶部的青蓝形成微妙的冷暖对比 —— 纯白会显得“死”且刺眼。
+   *
+   * ★★ 它是全站唯一的文字色来源：所有工具类、Markdown 主题、
+   *    分隔线、按钮反色块都从 var(--text) 派生。
+   *    改这一个值就能整站变色 —— 但前提是**别新增硬编码的 #fff**。
+   *    （canvas 里的线条色取自 getComputedStyle(document.body).color，
+   *      也自动跟随；见 SoundLine.vue。） */
+  --text: #fff8e7;
+  /* 次要文字 / 悬停退让色 */
+  --muted: color-mix(in srgb, var(--text) 50%, transparent);
+  --line: color-mix(in srgb, var(--text) 50%, transparent);
+
+  --border-width: 1px;
+
+  /* --- 滚动条 ---
+     ★ 仍然只由 --text 派生 —— 守住「除 --brand / --text 外不引入新色相」。
+       用一个偏淡的拇指：默认不抢视线（简约），hover / 拖动时加深给出反馈。
+     ★ 数值是实测调的：26% 在渐变两端（--bg-top / --bg）都还看得见轮廓，
+       再低就只剩一条几乎不可辨的灰影；55% 有明显的"点亮"感但不刺眼。 */
+  --scroll-thumb: color-mix(in srgb, var(--text) 26%, transparent);
+  --scroll-thumb-hover: color-mix(in srgb, var(--text) 55%, transparent);
+  /* 滚动条粗细。标准属性只有 thin/auto 两档，为了和 ::-webkit-scrollbar
+     的显式宽度对齐，这里统一写成一个值。 */
+  --scroll-size: 10px;
+
+  /* --- 字体 --- */
+  /* 末尾的中文字体用于兜底：英文字体不含中文字形 */
+  --font-cn: 'PingFang SC', 'Microsoft YaHei', 'Noto Sans SC', 'Source Han Sans SC', sans-serif;
+  /* primary：正文 */
+  --font-body: 'Inter Variable', Arial, var(--font-cn);
+  /* secondary：小标题，等宽大写 */
+  --font-mono: 'JetBrains Mono Variable', 'SFMono-Regular', Consolas, ui-monospace, var(--font-cn);
+  /* tertiary：巨型标题，超粗压缩 */
+  --font-display: 'Anton', Impact, var(--font-cn);
+
+  /* --- 字号（照搬原站） --- */
+  --fs-h2: 1.375rem; /* 22px 区块标题 */
+  --fs-h3: 1rem; /* 导航、列表项 */
+  --fs-h4: 0.75rem; /* 标签、服务项 */
+  --fs-main: 1rem; /* 正文 */
+  --fs-small: 0.875rem; /* 说明文字 */
+
+  /* --- 行高（照搬原站） --- */
+/* 注意：原站的 0.8 是给「超粗压缩英文字体」用的。
+   中文没有压缩字形，行高过低会上下重叠，故中文用 --lh-cn 单独抬高 */
+--lh-h1: 0.8;
+--lh-h1-cn: 1.15;
+--lh-h2-cn: 1.45;
+--lh-h3-cn: 1.5;
+--lh-main: 1.25;
+--lh-main-cn: 1.75; /* 中文正文行高：1.25 对中文太挤 */
+  /* --- 间距（照搬原站） --- */
+  --space-4: 1.25rem;
+  --space-5: 1.5rem;
+  --space-6: 2.5rem;
+  --space-7: 3rem;
+
+  --section-small: 4rem;
+  --section-main: 8rem;
+  --section-large: 12rem;
+
+  /* 页面顶部留白（导航之下的第一块内容位置）。
+   *
+   * ★ 三次收敛：15rem(240) → 10rem(160) → **7.5rem(120)**，都是「太靠下」。
+   *   第二次实测（1440×900，导航高 72px）：眉标「共 N 篇」文字距导航底边 91px、
+   *   h1 盒顶 122px —— 降 40px 后分别收到 51px / 82px，呼吸感还在但不空。
+   *   ⚠️ 想再调只改这一个值：四个页面（Articles / Archive / About / Detail）
+   *      都是 `padding-top: var(--page-top)`。
+   *   ⚠️ 404（NotFoundView）**不用**它 —— 它没有导航，
+   *      套用这个留白会让内容凭空下移（见该文件注释与 AGENTS.md §6.6）。 */
+  --page-top: 7.5rem;
+
+  /* ★ --section-top（原站的 40vh 区块顶留白）已删 —— 零引用。
+     需要「区块顶部占视口 40%」时再加。 */
+
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* ==========================================================================
+   基础层（照搬原站的 reset 思路）
+   ========================================================================== */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+/* ==========================================================================
+   全站禁用文本选中（2026 新增）
+   ==========================================================================
+
+   ★★ 这是一条**站点级策略**：除了文章正文，这个站点上的文字都不该被选中 ——
+      导航、hero 的巨型字形（B / log / Next）、按钮、标签、元数据、页脚，
+      全是**版式元素**而不是可摘录的正文。选中它们只会拖出满屏蓝块，
+      并让「可以按的东西」和「只是字」看起来一样。
+
+   ★★ 必须写在 html 上、**绝不能写成 `* { user-select: none }`**。
+      这条实测踩过一次，是本次改动唯一的真陷阱：
+
+        · `user-select` 生效在**每个元素自己的 computed 值**上，而 `*`
+          规则会给页面上**每一个**元素一个显式的 `none` —— 显式声明优先于
+          继承。于是 `article .body { user-select: text }` **完全失效**：
+          `.body` 自己算出来是 text，但它里面每个 `<p>`、`<span>` 都被 `*`
+          按成了 none，选中在正文上照样划不动。
+          实测：给 `.markdown-body`、给 `<p>` 加内联 `user-select:text`
+          都没用，只有把规则加到**最内层的每个元素**上才行 —— 这等于
+          放弃了「放行点只有一处」的设计。
+
+        · `html { user-select: none }` 走的是**继承**：后代只要不自己声明，
+          就自动是 none；而 `.body { user-select: text }` 一写，它整棵子树
+          立刻全部回到 text（实测 `inProse`/`spanInProse` 都变 text）。
+          规则少一条、语义还对。
+
+   ★ 唯一放行点：`src/views/ArticleDetailView.vue` 的 `.body`
+      （MarkdownRenderer 渲染出来的正文，含代码块）。选中能力**只**在
+      这一块里成立：`.article` 头部的分类 / 日期 / 标题 / 摘要、底部的
+      翻页导航，以及全站其它页面，依然不可选。
+
+   ★ 副作用（已知、且是刻意的）：文章标题与摘要变得无法复制。
+      要允许复制标题，就把放行点从 `.body` 上提到 `.article`，
+      代价是页码与「上一篇 / 下一篇」也一起可选。 */
+html {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+html {
+  background-color: var(--bg);
+  -webkit-text-size-adjust: 100%;
+  /* ★ 告诉浏览器这是深底浅字的界面：原生控件（含滚动条、
+     表单控件、`pre` 的默认样式）会走深色分支，不会再闪出白色滚动条。
+     这一条同时也是下面 `scrollbar-color` 生效前的兜底。 */
+  color-scheme: dark;
+  /* 给滚动条留出稳定的槽位，避免有无滚动条时整页左右抖动 */
+  scrollbar-gutter: stable;
+}
+
+/* ==========================================================================
+   滚动条 —— 全局（纵向 + 横向 + 所有滚动容器）
+   ==========================================================================
+
+   目标：简约、不抢视线、与固定渐变背景融为一体。
+
+   ★★ 为什么轨道必须透明（这是本设计最关键的一条）：
+     背景是 `html::before` 的**固定**渐变层（见下；不是 body —— body 会被
+     `scrollbar-gutter` 挤窄 10px，html 的盒子才等于视口）。
+     若给滚动条轨道填实色 —— 无论是 --bg 还是 --bg-top —— 都会在右侧
+     压出一条与渐变**错位**的色带：滚动条槽是相对视口固定的，
+     而渐变的颜色沿文档流变化，两者永远对不齐。
+     透明轨道让渐变直接透上来，纵向滚动条才会"浮"在背景上。
+
+   ★ 两种写法都要写，作用范围不同：
+     · `scrollbar-width` / `scrollbar-color`（标准）—— Firefox，以及
+       新版本 Chromium（121+）。只支持两档粗细与"拇指/轨道"两色，
+       做不出圆角与内边距，但行为最规整。
+     · `::-webkit-scrollbar`（非标准）—— Chromium / Safari。
+       能做圆角、留白、hover 加深。
+     ★ 两者**不能混用同一个元素**：Chromium 下只要写了 ::-webkit-scrollbar，
+       标准的 scrollbar-color 就会被忽略（反之亦然，取决于版本）。
+       所以这里让 webkit 分支显式覆盖颜色，保证两边观感一致。
+
+   ★ 用 `html` 而不是 `*` 选择器：
+     ::-webkit-scrollbar 会**继承**，`html` 这一层就能覆盖全站所有滚动容器
+     （含 .md-code pre / .md-table-wrap）。
+     若用 `*`，每个元素都要重新解析一遍样式，徒增开销。 */
+html {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scroll-thumb) transparent;
+}
+
+::-webkit-scrollbar {
+  width: var(--scroll-size);
+  height: var(--scroll-size);
+}
+
+/* 轨道透明 —— 让固定渐变层透上来 */
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* 拇指：一个圆角色块（2026-09-21 起不再描边、不再内缩，理由见下）
+   ★ 曾用 border + background-clip: content-box 做内缩留白 —— 已废弃：
+     它会先画圆角外轮廓再在里面填色，高对比度下像给拇指描了边。 */
+::-webkit-scrollbar-thumb {
+  background-color: var(--scroll-thumb);
+  border-radius: 100vw;
+  /* ★★ 不加 border、不做内缩（2026-09-21 用户要求「去掉边框，只留下条」）。
+   *
+   *   原先用 `border: 2px solid transparent` + `background-clip: content-box`
+   *   做「内缩留白」，让拇指看着比槽窄一圈。但那会先画一个圆角矩形的
+   *   外轮廓、再在里面填色 —— 高对比度下边缘感很强，像给拇指描了边。
+   *
+   *   现在只留一个色块：不加边框、不内缩，靠 `--scroll-size` 本身的细度
+   *   保证它不抢视线。想更细就调 `--scroll-size`。 */
+  transition: background-color 0.25s var(--ease);
+}
+
+::-webkit-scrollbar-thumb:hover,
+::-webkit-scrollbar-thumb:active {
+  background-color: var(--scroll-thumb-hover);
+}
+
+/* 两端的箭头按钮：整个隐藏（简约）。Chromium 里不写这几条会残留
+   一对方形按钮，在圆角风格里非常突兀。 */
+::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+/* 横向滚动条在 §6.10 的窄屏代码块里也会出现，
+   上面的规则同时管 width 与 height，所以横向一并生效，无需重复写。 */
+
+/* 无缝渐变层
+ *
+ * ★ 为什么用「固定定位的独立层」而不是给 body 加 background 渐变：
+ *   1) 固定层不随内容滚动，颜色永远填满视口 —— 这才是"无缝"
+ *      （给 body 加渐变时，渐变会随文档高度被拉长/挤压，长页面上颜色就错位）
+ *   2) 页面再长也不会出现"渐变到头、下面变纯色"的断层
+ *
+ * ★★ 尺寸必须用 `100vw` / `100vh`，**不能**写 `inset: 0`（2026-09-21 修正）。
+ *
+ *   症状：滚动条旁边有一条**深色竖边**（用户报的"边框"）。
+ *   根因：`inset: 0` 解析成 `clientWidth`（实测 1430px），
+ *         而视口是 1440px —— 差的 10px 正是 `scrollbar-gutter` 预留的槽。
+ *         槽的轨道是透明的（见上面的滚动条段落），于是就露出
+ *         `html` 的兜底实色 `--bg`（深蓝）；
+ *         而同一高度上内容区是 `--bg-top`（浅）→ 形成一条竖色带。
+ *   修法：`100vw` 含滚动条宽度（1440），渐变一直铺到槽下面，
+ *         与透明的轨道融为一体，竖带消失。
+ *
+ *   ★ 这也顺带解释了为什么挂 `html::before` 比 `body::before` 稳妥：
+ *     body 会被 `scrollbar-gutter` 挤窄，html 的盒子就是视口。
+ *
+ * ★ z-index: -1 + pointer-events: none：只做背景，不参与层级与交互。
+ *   html 上的实色 var(--bg) 是它的兜底（渐变层加载前/不支持时）。 */
+html::before {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  /* ★ 不用 inset: 0 —— 那会给到 clientWidth，盖不住滚动条槽 */
+  width: 100vw;
+  height: 100vh;
+  z-index: -1;
+  pointer-events: none;
+  background-image: var(--bg-grad);
+}
+
+body {
+  margin: 0;
+  /* ★ 透明，让上面的固定渐变层透出来 */
+  background-color: transparent;
+  color: var(--text);
+  font-family: var(--font-body);
+  font-size: var(--fs-main);
+  font-weight: 500;
+  line-height: var(--lh-main);
+  -webkit-font-smoothing: antialiased;
+  /* 中文需要额外字距才不显拥挤 */
+  letter-spacing: 0.02em;
+}
+
+/* 标题继承父级，由工具类决定样式 */
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+p,
+blockquote {
+  font-family: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+  line-height: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  margin: 0;
+}
+
+ul,
+ol {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+img,
+svg,
+video {
+  display: block;
+  max-width: 100%;
+}
+
+img {
+  /* 原站禁用图片选中与拖拽 */
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+/* 图片请求不到时的兜底（`v-img-fallback` 指令 / MarkdownRenderer 的正文图）：
+   静态站没有后端可兜，坏图只能在前端收拾 —— 否则浏览器画出「破图图标 + alt 文字」。
+   ★ 带 `aspect-ratio` 的框（`.card-media` / `.profile-avatar`）**必须保住高度**，
+     所以给图用 `visibility: hidden` 而不是 `display: none`：框还在，只是空着。
+   ★ 占位画在父级 `::after` 上：对角线 + 一行小字，尺寸随框走，任何宽高都不溢出。
+   ★ 颜色一律 `currentColor` + 整块 `opacity: .45`：坏图会落在两种底色上 ——
+     米色卡里（`.profile-card` 的 `color: var(--brand)`）与蓝底卡 / 正文里（`color: var(--text)`）。
+     第一版写死 `--muted`（= 半透明米色），在米色卡上完全看不见（2026-10-08 实测踩到）。 */
+img.is-broken {
+  visibility: hidden;
+}
+
+.has-broken-img {
+  position: relative;
+}
+
+.has-broken-img::after {
+  content: '图片加载失败';
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  opacity: 0.45;
+  font-size: 0.7rem;
+  letter-spacing: 0.04em;
+  color: currentColor;
+  background:
+    linear-gradient(
+      to top right,
+      transparent calc(50% - 0.5px),
+      currentColor calc(50% - 0.5px) calc(50% + 0.5px),
+      transparent calc(50% + 0.5px)
+    ),
+    linear-gradient(
+      to bottom right,
+      transparent calc(50% - 0.5px),
+      currentColor calc(50% - 0.5px) calc(50% + 0.5px),
+      transparent calc(50% + 0.5px)
+    );
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+
+::selection {
+  background: var(--text);
+  color: var(--bg);
+}
+
+/* ==========================================================================
+   排版工具类 —— 对应原站 .u-text-style-*
+   ========================================================================== */
+
+/* ★ 英文原版 `.u-h1`（6rem / 行高 0.8 / uppercase）已于 2026-10-08 大清洗删除
+ *   —— 全站标题都是中文，模板只用 `.u-h1-cn`；两套并存只会让人猜该用哪个。
+ *   `--lh-h1` 仍留着：`NotFoundView.vue` 拿它推导 Anton 的墨迹均分。 */
+
+/* h1 中文版：中文没有压缩字形，行高必须抬高，否则上下行重叠 */
+.u-h1-cn {
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: clamp(2.5rem, 5.5vw, 5rem);
+  line-height: var(--lh-h1-cn);
+  letter-spacing: 0.01em;
+  text-wrap: balance;
+}
+
+/* ★ 英文原版 `.u-h2`（等宽大写 / 行高 1.1）已于 2026-10-08 大清洗删除（同上）。 */
+
+/* h2 中文版：1.1 对中文偏挤，抬到 1.45 */
+.u-h2-cn {
+  font-family: var(--font-mono);
+  font-weight: 500;
+  font-size: var(--fs-h2);
+  line-height: var(--lh-h2-cn);
+  letter-spacing: 0.02em;
+  text-wrap: balance;
+}
+
+/* h3：列表项、导航，等宽大写，1rem / 1.1 / 字距 .02em */
+.u-h3 {
+  font-family: var(--font-mono);
+  font-weight: 500;
+  font-size: var(--fs-h3);
+  /* 中文需要比英文更松的行高，否则上下贴住 */
+  line-height: var(--lh-h3-cn);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  text-wrap: balance;
+}
+
+/* h4：标签、元信息，等宽大写，0.75rem / 1.1 / 字距 .02em */
+.u-h4 {
+  font-family: var(--font-mono);
+  font-weight: 500;
+  font-size: var(--fs-h4);
+  line-height: var(--lh-h3-cn);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  text-wrap: balance;
+}
+
+/* 标签（#xxx）：字形跟 .u-h4 一样，但**不做大写转换**。
+   .u-h4 的 uppercase 是给导航、日期这类「界面文字」用的；
+   标签是作者写的内容标识符，#Vue / #Python 被折成 #VUE / #PYTHON 就改了拼写，
+   而且同一批标签在列表页（带 .u-h4）和归档页（没带）会长得不一样。
+   ★ 选择器写成「两个类」是为了压过上面的 .u-h4，不依赖先后顺序。 */
+.tag.u-h4,
+.filter-tag.u-h4,
+.card-tag.u-h4 {
+  text-transform: none;
+}
+
+/* 正文：1rem / 1.25 */
+.u-main {
+  font-family: var(--font-body);
+  font-size: var(--fs-main);
+  font-weight: 500;
+  line-height: var(--lh-main-cn);
+  letter-spacing: 0.02em;
+  text-wrap: pretty;
+}
+
+/* 小字：0.875rem / 1.25 */
+.u-small {
+  font-family: var(--font-body);
+  font-size: var(--fs-small);
+  font-weight: 500;
+  line-height: var(--lh-main-cn);
+  letter-spacing: 0.02em;
+  text-wrap: pretty;
+}
+
+/* 次要文字：褪到一半。
+ * ★ 用 var(--muted) 令牌而不是每处写一遍 color-mix ——
+ *   NextButton 的 hover 也要用它（之前引用了不存在的 --muted，
+ *   结果 hover 静默失效）。 */
+.u-muted {
+  color: var(--muted);
+}
+
+/* ==========================================================================
+   布局
+   ========================================================================== */
+
+/* 容器：原站 max-width: var(--container--main)，居中 */
+.u-container {
+  width: 100%;
+  max-width: var(--container-main);
+  margin-inline: auto;
+  /* 桌面端给一个精确的横向内边距（见 --desktop-pad）。
+     它同时是「内容不要贴边」的硬保障：即使 100vw 算出的
+     max-width 偏宽，这里的 padding 也会把内容推离屏幕边缘。 */
+  padding-inline: 0;
+  position: relative;
+}
+
+/* 桌面端：所有容器统一用同一列基准。
+ *
+ * ★★ 为什么必须涵盖**所有** `.u-container`，而不是只挑 `main > .u-container`：
+ *   导航（.nav-contain）、页脚（.footer-contain）、首页 hero
+ *   （.hero-contain）都带 `.u-container`，用的是同一个 `--container-main`，
+ *   所以它们都受 100vw 把滚动条算进去的影响。
+ *
+ *   ⚠️ 特别是首页 hero —— 它在 `main > section.hero > .hero-contain`，
+ *      **不是** main 的直接子元素。我第一版只写了 `main > .u-container`，
+ *      结果导航挪到了 16px 而 hero 的巨型 B 还在 8.3px，
+ *      反而把原本对齐的两者错开了（实测发现）。
+ *
+ *   ★ 这一列是本项目的排版基准，导航 / 内容 / 页脚 / hero 必须同一列。
+ *
+ * ★ 用 `.u-container` 单一选择器就够，且不用给 nav/footer 写例外：
+ *   两者本来就带这个类。 */
+@media (min-width: 901px) {
+  .u-container {
+    padding-inline: var(--desktop-pad);
+  }
+}
+
+/* 24 列栅格 */
+.u-grid {
+  display: grid;
+  grid-template-columns: repeat(var(--cols), minmax(0, 1fr));
+  gap: var(--gutter);
+}
+
+/* 区块留白。
+ * ★ 只留 `.u-section-space` 这一个（三个视图都在用它）。
+ *   曾经照搬原站定义了 `.space-small/main/large/page-top/section-top` 五个变体，
+ *   但**没有任何模板用过**（2026-09-22 实测零引用），已删。
+ *   需要别的留白高度时直接加，不必先把五个变体都摆上。
+ *
+ * ★ 这个类名历史上被写过但没定义过 → 实测高度 0px，本该有的
+ *   区块留白全部消失（页面看着「挤」，但又不报错，很难发现）。 */
+.u-section-space {
+  height: var(--section-main);
+}
+
+/* 页面末尾的「N ext」下一屏按钮容器。
+   组件本体见 components/NextButton.vue（排版与首页 hero 的 NEXT 完全一致）。
+   统一右对齐到容器右缘 —— 与 hero 里 NEXT 贴右下角的位置同一套语言。 */
+.page-next {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: var(--space-6);
+}
+
+/* ==========================================================================
+   毛玻璃面板（共用配方）—— 2026-10-07
+   ==========================================================================
+
+   配方原本只写在 ArticleDetailView 的 `.panel` 里（见 AGENTS.md §5.9）。
+   2026-10-07 一度被上提，是因为当时的留言板要用同一种"纸"；留言板当天被
+   用户 m09009 换成项目页（项目页直接排卡片、**不用**面板，见 §5.12），
+   但这条规则**保留** —— 文章详情页仍在用，语义就是"单篇内容的纸"。
+   上提的收益照旧：把**配方**放这里、把**版面**（多宽、怎么居中）留在页面里：
+
+     .glass-panel  →  观感（白纱 / 模糊 / 亮边 / 投影）
+     各页面的 .panel → 宽度与居中
+
+   ★ 尺寸令牌由使用方给（--panel-pad / --panel-radius），这里留兜底值，
+     所以任何页面直接挂 .glass-panel 都是可用的。
+
+   ★★ 背景是 html::before 的**固定平滑渐变**（没有细节可模糊），所以
+     backdrop-filter 本身几乎看不出变化 —— 真正让它读成"玻璃"的是三件套：
+       ① 淡白纱（linear-gradient 的 3 个白色停止点）
+       ② 1px 亮边 + 顶部内高光（inset 0 1px 0）
+       ③ 大而软的投影 ← **最关键**：平滑渐变上只有投影能把"纸"抬起来
+     去掉投影后它立刻退化成一块"颜色略有不同的矩形"。
+
+   ★ 不支持 backdrop-filter 时不要把面板做没：58% 底色 + 白纱本身就是
+     半透明实底，面板依旧成立（只是没有模糊），所以不做 @supports 分支。 */
+.glass-panel {
+  padding: var(--panel-pad, clamp(1.25rem, 4vw, 3.25rem));
+  border-radius: var(--panel-radius, clamp(16px, 1.6vw, 22px));
+
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--text) 7%, transparent) 0%,
+      color-mix(in srgb, var(--text) 3%, transparent) 38%,
+      color-mix(in srgb, var(--text) 5%, transparent) 100%
+    ),
+    color-mix(in srgb, var(--bg) 58%, transparent);
+
+  /* 现代浏览器都支持，但 -webkit- 前缀在 Safari 上是必需的 */
+  backdrop-filter: blur(20px) saturate(140%);
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
+
+  border: 1px solid color-mix(in srgb, var(--text) 14%, transparent);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--text) 22%, transparent),
+    inset 0 -1px 0 color-mix(in srgb, var(--text) 7%, transparent),
+    0 30px 70px -26px rgba(2, 12, 48, 0.55);
+}
+
+/* 分隔线：原站 50% 透明度。
+ *
+ * ★ <hr> 必须清掉 margin 与 border：默认的 inset 边框会与 background
+ *   叠成双线（总高 1.8px 而不是 1px）。
+ *
+ * ★ 历史上这个类被改名过一次（定义写的 .u-line，用的人写 .u-rule），
+ *   结果是「定义了没人用 + 用了的没定义」—— 实测退化成浏览器默认 <hr>。
+ *   2026-10-08 大清洗时两个名字都已零引用 ⇒ 整条规则删除。
+ *   页面里那条横线用的是 `<hr class="rule">`（各视图自己的 `.rule`），
+ *   正文里的裸 `<hr>` 由 `MarkdownRenderer.vue` 的 `:deep(hr)` 兜底。 */
+
+/* ==========================================================================
+   组件
+   ========================================================================== */
+
+/* 文字按钮。
+ * ★ 只保留 `.btn` 本身（三个地方在用：详情页的「继续阅读」/「回到文章列表」、
+ *   404 页的「回到首页」）。
+ *   原站那套 `.btn-text` / `.btn-icon` / `@keyframes btn-flicker`
+ *   以及登录页用的 `.btn-solid` —— 在本项目里**零引用**（2026-09-22 实测），
+ *   随登录页一起删掉了。 */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  vertical-align: middle;
+  position: relative;
+  /* 注意：不要设 line-height:1，中文会上下贴住 */
+  line-height: 1.4;
+}
+
+/* 卡片：仅一条上边线 */
+.card {
+  border-top: 1px solid var(--line);
+  padding-top: 1rem;
+}
+
+code {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  padding: 0.1em 0.4em;
+  border: 1px solid var(--line);
+}
+
+/* ==========================================================================
+   滚动进场动画
+   ========================================================================== */
+
+/* ★ 本段曾是纯 CSS 的滚动进场（[data-reveal] + .is-visible）与「逐词上浮」
+   （.reveal-word），现均已移除：
+     - v-reveal 指令改为 motion 驱动（见 src/directives/reveal.ts），
+       样式全部由 motion 内联写入，类名规则会和它争抢 opacity/transform；
+     - RevealWords.vue 组件已删除（无人使用），对应的 .reveal-word
+       与 @keyframes word-up 随之成为死代码。
+   这里只留一个分区标题，方便以后需要时再往里加动画。 */
+
+/* 窄屏：导航**始终单行**（logo 与链接条并排），只缩字号。
+   内容自然高 69px（14px 字 + 1.5rem 内距）。 */
+@media (max-width: 767px) {
+  :root {
+    --nav-h: 4.3125rem; /* 69px */
+  }
+}
+
+/* 极窄屏（≤520px）：仍然单行，只是把横向内边距压到 3px。
+   内容自然高 45px（14px 字 + 0.75rem 内距），留出上下呼吸 → 64px。
+
+   ★ 曾经这里是 6.625rem(106px) —— 因为早期真的会换成两行。
+     现在改成「一直并排」（用户要求，且实测 320px 也放得下，
+     见 DefaultLayout 的注释），高度回落到单行的量级。
+     若忘了改这里，hero 顶部会凭空多出四十多像素空隙。 */
+@media (max-width: 520px) {
+  :root {
+    --nav-h: 4rem; /* 64px */
+  }
+}
+
+/* 320 档（≤345px）：导航字号 clamp 已触底 10px（不是 12px），高度降到 56px。 */
+@media (max-width: 345px) {
+  :root {
+    --nav-h: 3.5rem; /* 56px */
+  }
+}
+
+/* --- 移动端：照搬原站的断点缩放 --- */
+@media (max-width: 767px) {
+  :root {
+    --fs-h2: 1.125rem;
+    --fs-h3: 0.875rem;
+    --section-main: 4.5rem;
+    --section-large: 6rem;
+  --page-top: 6rem;
+  /* ★ 窄屏把桌面端那个精确边距收回：移动端滚动条是覆盖式的，
+     没有桌面那个问题，而且窄屏上固定 1rem 下限会推大留白。 */
+  --desktop-pad: var(--site-margin);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

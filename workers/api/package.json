@@ -1,0 +1,6 @@
+{
+  "name": "blog-api-worker",
+  "private": true,
+  "type": "module",
+  "//": "只为让 wrangler 把 src/*.js 当 ES module 处理；不属于根项目的 workspace。"
+}

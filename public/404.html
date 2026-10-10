@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>页面不存在 · 我的博客</title>
+    <style>
+      /* ★ 这是 GitHub Pages 的兜底页。
+       *
+       *   Pages 是纯静态托管，没有服务端路由 ——
+       *   直接访问 /articles/hello（刷新或分享链接）时会去找
+       *   那个路径下的实体文件，找不到就返回 404。
+       *
+       *   放一个 404.html，并在这里用 JS 把路径「转发」回 index.html，
+       *   前端路由（createWebHistory）就能正常接管。
+       *
+       *   ★ 保留完整路径与 query/hash，否则用户会丢失目标页。 */
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        background: #0631bb;
+        color: #fff8e7;
+        font-family: system-ui, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+        letter-spacing: 0.02em;
+      }
+      p {
+        opacity: 0.7;
+        font-size: 0.875rem;
+      }
+    </style>
+  </head>
+  <body>
+    <p>正在跳转…</p>
+    <script>
+      ;(function () {
+        var l = window.location
+        /* 拼回完整目标：路径 + 查询 + 锚点 */
+        var target = l.pathname + l.search + l.hash
+        /* 交给 index.html，由前端路由解析 */
+        l.replace(l.origin + '/?redirect=' + encodeURIComponent(target))
+      })()
+    </script>
+  </body>
+</html>
