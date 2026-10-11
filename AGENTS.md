@@ -114,7 +114,7 @@ src/
 │  ├─ MusicBar.vue        # 音乐栏（走带键 + 细轨进度 + 曲目抽屉 + 断点续播）
 │  ├─ MusicBall.vue       # 音乐球（非首页的右下浮动球 + 面板：环状进度 + 走带键 + 曲目列表，见 §5.7）
 │  ├─ SiteStats.vue       # 「关于」页侧栏的站点统计卡（文章 / 标签 / 总字数 / 浏览量，见 §5.13）
-│  ├─ SteamCard.vue       # 「关于」页侧栏第三张卡：Steam「最近在玩」（★ 没配端点就整个不渲染，见 §5.16）
+│  ├─ SteamCard.vue       # 「关于」页**右栏**那张卡：Steam「最近在玩」（★ 没配端点就整个不渲染，见 §5.16）
 │  ├─ NextButton.vue      # 「N ext」翻页按钮（各页共用，见 §5.6）
 │  ├─ SoundLine.vue       # 音频线（兼画 hero 渐变 + 线下填充）
 │  └─ CursorDot.vue       # 跟随光标的半透明白圆（挂 App.vue，404 页也生效；按下时微微收缩 —— scale 写在 transform 末尾，见组件注释）
@@ -1017,10 +1017,28 @@ links:                                    # 可选：YAML 数组
   ★ `max-width: 100%` 不能省：1280~1345 这一带两侧轨道只剩 ~208px，`width: 15rem` 的卡片会从列里溢出去
   （实测左边缘跑到 **x = −16**，被视口切掉）；加上它卡片跟着缩（1280 实测卡 208 宽、头像 192→160）。
 - `.about-main { grid-column: 2; min-width: 0 }`
+- ★★ **2026-10-10（用户 m00455「移动一下steam组件到右边，要和左边组件对称」）：Steam 卡挪到右栏** ——
+  `.steam-side { grid-column: 3; grid-row: 1; justify-self: start; width: 15rem; max-width: 100%;
+  display: flex; flex-direction: column; gap: var(--space-4); position: sticky;
+  top: calc(var(--nav-h) + var(--space-4)) }`，与 `.profile` 逐项镜像（左栏 `justify-self: end`、
+  右栏 `start`，两边都贴着中列）。实测 1440：左栏 x 62.8 / 右栏 x 1127.2、各 240 宽，
+  到面板的间隙 **40.0 / 40.1**（对称），三栏顶边同在 y=120。
+  ★★ **三栏都必须显式写 `grid-row: 1`**（第一版漏了，实测面板 y 从 120 掉到 735）：自动放置的
+  **游标在「有确定列、没有确定行」的 item 之间是单调的** —— 先 col 1、再 col 3 之后，接着那个
+  col 2 的 `.about-main` 因为「列号比游标小」会被顶到**第 2 行**。窄屏那档三条又要各自改回
+  `grid-row: auto`（单列网格里都钉 row 1 会直接叠在一起）。
+  ★ 模板里它是 `.about-grid` 的**第 2 个子节点**（放在 `.about-main` 之前）⇒ 窄屏单栏时顺序仍是
+  「头像卡那排 → Steam 卡 → 正文」，与挪动前一致（实测 620：y 96 → 389 → 556.7）。
 - ≤1279px 收单栏：`grid-template-columns: minmax(0,1fr)`，**必须同时写 `.about-main { grid-column: 1 }`**
   ★★ 单列网格里留 `grid-column: 2` 会凭空造出一条**隐式轨道**（宽度 = 面板 743），把第 1 列挤成 40~198px：
   卡片被压成细长条、两格还会重叠（实测 1279 卡片 16..470 / 面板 510..1253）。
   这一档还要 `position: static`（关掉 sticky）。
+  ★ 右栏同理：`.steam-side { grid-column: 1; grid-row: auto; justify-self: stretch; position: static;
+  width: 100%; max-width: calc(var(--reading-w) + var(--panel-pad) * 2); margin-inline: auto;
+  container-type: inline-size }` —— `grid-column`/`grid-row` 都要复位（隐式轨道与叠层两个坑），
+  `container-type` 也不能省（SteamCard 的 `@container` 量的是它那一行）。
+  ★ 于是 2026-10-09 那条「`.profile > .steam-card { flex: 1 1 100% }` 让第三张卡独占一行」**已删**
+  （Steam 卡已不在 `.profile` 里）；`.profile` 的 `flex-wrap: wrap` 只作保底。
   ★★ **2026-10-08（用户 m14298「我希望响应式设计是在窄框情况下站点信息和介绍头像卡在同一排」）：
   单栏时两张卡改并排一行** —— `.profile { flex-direction: row; align-items: stretch; container-type: inline-size }`
   + `.profile > * { flex: 1 1 0; min-width: 0 }`（`flex: 1 1 0` 让两张卡等宽，`min-width: 0` 不能省）。
@@ -1214,7 +1232,8 @@ links:                                    # 可选：YAML 数组
 **Steam 卡**（`src/components/SteamCard.vue` + `src/composables/steam.ts`，用户 m16721 定的形态
 「关于页侧栏新加一张『最近在玩』卡」）：
 
-- 挂在 `AboutView` 的 `.profile` 里 `<SiteStats />` 之后 —— 侧栏第三张卡。
+- 挂在 `AboutView` 的**右栏** `<aside class="steam-side">` 里（★★ 用户 m00455「移动一下steam组件到右边，
+  要和左边组件对称」从左侧栏挪来）。左栏是「头像卡 + 站点统计卡」，它单独占右栏、与左栏镜像对称。
 - ★★ **没配 `VITE_STEAM_ENDPOINT` 就整个不渲染**（组件内 `v-if="hasSteamEndpoint"`）。
   这和统计卡的「浏览量显示 `—`」不一样：那张卡里的一个格子留 `—` 是诚实的；这张卡整体是**可选功能**，
   没开就不该占位置。反过来，配了但失败（私密 / 上游挂了）**必须显示** —— 用户要知道为什么。
@@ -1223,10 +1242,17 @@ links:                                    # 可选：YAML 数组
   连 `games` 字段都没有）⇒ 不主动判空就会显示一张空卡（`steam.js` 里最值钱的几行就是这两条判空）。
 - `steam.ts` 里有 5 分钟模块级缓存 + 并发去重（与 Worker 的 `CACHE_TTL_S = 300` 对齐）；
   `upstream` / 网络失败**不进缓存**（瞬时状态，刷新就该重试）。
-- 布局：≤1279px 单栏时 `.profile` 变 `flex-direction: row; flex-wrap: wrap`，前两张卡各占半行，
-  **第三张卡 `flex: 1 1 100%` 独占下一行**（620px 时三张各 1/3 只剩 ~186px，英文长游戏名会被截成两三个
-  字母）；SteamCard 自己在 ≤1279px 把列表改成 `repeat(auto-fit, minmax(10rem, 1fr))`，宽卡一行放 3 款游戏。
+- 布局：>1279px 它是**右栏**一张卡（240 宽，与左栏镜像对称，见 §5.13）；≤1279px 单栏时它独占一整行、
+  与面板同宽同位置（`.steam-side` 那一档）。SteamCard 自己在 ≤1279px 把列表改成
+  `repeat(auto-fit, minmax(10rem, 1fr))`，宽卡一行放 3 款游戏。
   容器查询阈值（38rem / 23rem）与统计卡**故意保持一致** —— 同排时才不会一宽一窄。
+  实测：620px 卡 588×127.8、三行各 176×33；1000px 卡 720.3×137.8、三行各 211×34。
+- ★★ **2026-10-10（用户 m00455）：前端所有可见的错误兜底统一成同一句「加载失败了😫」** ——
+  `steam.ts` 的 `FALLBACK_TEXT`（`STEAM_ERROR_TEXT` 七个码现在都指向它，键**保留**，排障时对着
+  Network 面板能对上号）、`MusicBar.vue` 的 `.mb-empty`（原来那句「音乐端点未配置 —— 把
+  VITE_MUSIC_ENDPOINT 指向…」挪进注释备查）、`style.css` 的 `.has-broken-img::after`、
+  三处详情页的缺失标题（文章 / 项目 / 关于的 `.missing h1`）。
+  ★ **`NotFoundView`（404 页「页面走丢」）没动** —— 那是设计好的独立页面，不是兜底。
 
 ★★ **Steam Web API key 永远不进前端**：它是账号级凭据（能读整个游戏库），而且 Steam **一个 CORS 头都不给**。
 key 只活在 Worker（`npx wrangler secret put STEAM_API_KEY`）或本地 dev 的环境变量里。

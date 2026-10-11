@@ -19,6 +19,7 @@ import {
   hasSteamEndpoint,
   readSteam,
   STEAM_ERROR_TEXT,
+  FALLBACK_TEXT,
   STEAM_STATE_TEXT,
   type SteamSnapshot,
 } from '@/composables/steam'
@@ -46,7 +47,7 @@ const profileLine = computed(() => {
   return state ? `${p.name} · ${state}` : p.name
 })
 
-const errorText = computed(() => (error.value ? (STEAM_ERROR_TEXT[error.value] ?? '暂时取不到 Steam 数据') : ''))
+const errorText = computed(() => (error.value ? (STEAM_ERROR_TEXT[error.value] ?? FALLBACK_TEXT) : ''))
 
 /** 时长文案：上游给的是小时（1 位小数），0 和极小值都要说人话 */
 function hoursText(hours: number): string {

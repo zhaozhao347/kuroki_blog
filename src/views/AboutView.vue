@@ -132,8 +132,11 @@ function isMailLink(href: string): boolean {
         <!-- 站点统计：和头像卡一起待在同一个粘性侧栏里（见 .profile 的注释） -->
         <SiteStats />
 
-        <!-- Steam「最近在玩」：★ 组件自己判断有没有配端点（没配就整个不渲染），
-             所以这里不用 v-if —— 侧栏永远只写一行。 -->
+      </aside>
+
+      <!-- ── 右：Steam「最近在玩」（★★ 用户 m00455：从左栏挪来，与左栏对称） ──
+           ★ 组件自己判断有没有配端点（没配就整个不渲染），所以这里不用 v-if。 -->
+      <aside class="steam-side">
         <SteamCard />
       </aside>
 
@@ -161,7 +164,7 @@ function isMailLink(href: string): boolean {
     <!-- 兜底：md 文件不在（改名 / 拼错）时不要整页空白 -->
     <div v-else class="missing">
       <p class="u-h4 u-muted">404</p>
-      <h1 class="u-h2-cn">找不到这一页</h1>
+      <h1 class="u-h2-cn">加载失败了😫</h1>
       <p class="u-main u-muted">
         `content/pages/{{ PAGE_SLUG }}.md` 没有被读到。跑一下 <code>npm run check:pages</code>。
       </p>
@@ -202,6 +205,13 @@ function isMailLink(href: string): boolean {
 /* ── 侧栏（头像卡 + 站点统计卡） ────────────────────── */
 .profile {
   grid-column: 1;
+  /* ★★ `grid-row: 1` 不能省（2026-10-10 实测踩到）：自动放置的**游标**在
+     「有确定列、没有确定行」的 item 之间是单调的 —— 先放 col 1、再放 col 3 之后，
+     游标列号变成 3，接着那个 col 2 的 `.about-main` 因为「列号比游标小」会被**顶到下一行**
+     （实测面板从 y=120 掉到 y=735，正文整块沉下去）。
+     三栏显式写 row 1 就与放置顺序无关了；窄屏那档必须各自改回 `grid-row: auto`
+     （单列网格里三个 item 都钉在 row 1 会直接叠在一起）。 */
+  grid-row: 1;
   /* 贴着中列那一侧（与正文之间留 gap），而不是跟容器左边对齐 */
   justify-self: end;
   width: 15rem;
@@ -217,6 +227,23 @@ function isMailLink(href: string): boolean {
   /* ★ 粘性：滚正文时整套侧栏跟着停在导航下面。
      它是 grid item，粘性包含块是**整行高度**（= 面板高度），所以有充足的滚程；
      `align-items: start` 又让它保持自身高度、不会拉成一整条米色长条。 */
+  position: sticky;
+  top: calc(var(--nav-h) + var(--space-4));
+}
+
+/* ── 右侧栏（Steam「最近在玩」）★★ 用户 m00455：从左栏挪到右栏，与左栏对称。
+   完全镜像 `.profile`：左栏 `justify-self: end` 贴中列，这里 `start` 也贴中列；
+   宽度 / 卡间距 / 粘性 top 全部同值 ⇒ 两栏关于中列对称。
+   ★ 只有一个 grid item，所以 sticky 直接挂在这一层（同 .profile 的理由）。 */
+.steam-side {
+  grid-column: 3;
+  grid-row: 1; /* ← 见 .profile 的注释（自动放置游标那个坑） */
+  justify-self: start;
+  width: 15rem;
+  max-width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
   position: sticky;
   top: calc(var(--nav-h) + var(--space-4));
 }
@@ -392,6 +419,7 @@ function isMailLink(href: string): boolean {
 /* ── 右：面板（结构与文章详情页一致） ─────────────────── */
 .about-main {
   grid-column: 2;
+  grid-row: 1; /* ← 见 .profile 的注释（自动放置游标那个坑） */
   min-width: 0;
 }
 
@@ -455,11 +483,13 @@ function isMailLink(href: string): boolean {
      —— 卡片会被压成细长条、两个格子还会重叠。 */
   .about-main {
     grid-column: 1;
+    grid-row: auto; /* ← 单列时不能再钉 row 1（会叠在一起） */
   }
 
   /* ★ 单栏时 sticky 没意义（卡片本来就在最上面），还会在滚动中挡住正文 */
   .profile {
     grid-column: 1;
+    grid-row: auto;
     justify-self: stretch;
     position: static;
     width: 100%;
@@ -471,8 +501,9 @@ function isMailLink(href: string): boolean {
        `@container` 按每张卡自己的宽度决定（见文件末尾那一段）。 */
     flex-direction: row;
     align-items: stretch;
-    /* ★ 2026-10-09 加了第三张卡（Steam「最近在玩」）：允许换行，
-       第三张卡用 `flex-basis: 100%` 独占下一行（见下面的 `.profile > .steam-card`）。 */
+    /* ★ 2026-10-09 曾靠「允许换行 + 第三张卡 flex-basis: 100%」让 Steam 卡独占第二行；
+       ★★ 用户 m00455 把 Steam 卡挪到右栏（`.steam-side`）后这里只剩两张卡，
+       wrap 仅作保底（窄到两张卡都摆不下时各自掉一行）。 */
     flex-wrap: wrap;
     /* 卡内布局要用容器查询 => 这里建立容器（量的是这一行的宽度） */
     container-type: inline-size;
@@ -483,12 +514,21 @@ function isMailLink(href: string): boolean {
     min-width: 0;
   }
 
-  /* ★★ Steam 卡（第三张）**独占一行**：basis 100% ⇒ 它挤不进第一行，只能换行；
-     到了第二行再长满整行。为什么不让三张卡各占 1/3：620px 时每张只有 ~186px，
-     游戏名（英文长名）会被截成两三个字母，反而不如「一整行摊开 + 卡内多列」好读
-     （SteamCard 自己在 ≤1279px 把列表改成 `auto-fit` 多列，宽卡一行能放 3 款游戏）。 */
-  .profile > .steam-card {
-    flex: 1 1 100%;
+  /* ★★ 窄屏（单栏）下右栏的 Steam 卡回到「一整行」：和面板同宽同位置、居中，
+       DOM 顺序让它在「头像卡那一排」下面、正文上面（与挪动前的位置一致）。
+       ★ 必须一起把 grid-column 改回第 1 列：单列网格里留着 `grid-column: 3`
+       会凭空造出隐式轨道（同上面 .about-main 的坑）。
+       ★ container-type 不能省：SteamCard 内部的 @container 规则（38rem / 23rem）
+       量的是它自己那一行的宽度。 */
+  .steam-side {
+    grid-column: 1;
+    grid-row: auto;
+    justify-self: stretch;
+    position: static;
+    width: 100%;
+    max-width: calc(var(--reading-w) + var(--panel-pad) * 2);
+    margin-inline: auto;
+    container-type: inline-size;
   }
 
   .profile-card {

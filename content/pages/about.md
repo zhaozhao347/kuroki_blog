@@ -5,7 +5,7 @@ eyebrow: 关于
 summary: 这个站是什么、用什么写的、最近在折腾什么。
 cover: assets/avatar.jpg
 name: 小火兰
-tagline: 爱你所爱
+tagline: popipa~
 links:
   - label: GitHub
     href: https://github.com/zhaozhao347

@@ -321,7 +321,7 @@ onBeforeUnmount(() => {
   <!-- slug 不存在：明确告知，不要留白屏 -->
   <div v-else class="article u-container missing">
     <p class="u-h4 u-muted">404</p>
-    <h1 class="u-h2-cn">找不到这篇文章</h1>
+    <h1 class="u-h2-cn">加载失败了😫</h1>
     <p class="u-main u-muted">它可能被改名或删掉了。链接里的标识是「{{ props.id }}」。</p>
     <RouterLink to="/articles" class="btn">回到文章列表</RouterLink>
   </div>

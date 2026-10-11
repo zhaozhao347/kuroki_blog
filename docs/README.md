@@ -42,5 +42,6 @@
 | 文档 | 回答什么 |
 | --- | --- |
 | [static-site-deploy.md](./static-site-deploy.md) | 上线这件事的全链路：`dist/` 产物 → CDN 分发 → 域名/DNS/HTTPS → 边缘函数（含本站三个端点的逐条说明）→ 部署与排障 |
+| [content-md-guide.md](./content-md-guide.md) | 写内容时**文件放哪儿**：文章 / 项目 / 「关于」三个集合各自的目录、文件名（slug）规则、frontmatter 字段表、图片目录，以及三集合共有规矩与体检命令 |
 
 **不要为了凑数而建文件** —— 一句话能说清的事，写进对应的根文档即可。

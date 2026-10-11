@@ -152,10 +152,9 @@ onUnmounted(() => {
 <template>
   <div class="music-bar" :class="{ 'is-playing': isPlaying, 'is-empty': !hasTracks }">
     <!-- 无曲目：只有一种真实原因 —— 生产构建没配 VITE_MUSIC_ENDPOINT。
-         如实说清怎么配，比给一排点不动的按钮诚实。 -->
-    <p v-if="!hasTracks" class="mb-empty">
-      音乐端点未配置 —— 把 <code>VITE_MUSIC_ENDPOINT</code> 指向 <code>workers/api/</code> 的部署地址
-    </p>
+         ★★ 用户 m00455：这句话也统一成兜底那一句（不再把配置指引摊给访客看）。
+         配置方法留在这里备查：把 VITE_MUSIC_ENDPOINT 指向 workers/api/ 的部署地址。 -->
+    <p v-if="!hasTracks" class="mb-empty">加载失败了😫</p>
 
     <div v-else class="mb-shell">
       <!-- 行 1：控件 + 当前曲目 + 时间 + 音量 -->

@@ -432,7 +432,7 @@ img.is-broken {
 }
 
 .has-broken-img::after {
-  content: '图片加载失败';
+  content: '加载失败了😫';
   position: absolute;
   inset: 0;
   display: grid;

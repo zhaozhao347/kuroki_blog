@@ -202,13 +202,30 @@ export const STEAM_STATE_TEXT: Readonly<Record<string, string>> = {
   'looking-to-play': '想联机',
 }
 
-/** 错误码 → 卡片上那句话（`null` 不进这里） */
+/**
+ * 前端所有可见兜底的统一文案。
+ *
+ * ★★ 用户 m00455：「把前端的所有能显示出来的错误兜底，全部统一改为：加载失败了😫」
+ *    —— 所以端点没配 key、资料设了私密、超时、返回看不懂…… 对访客都是同一句。
+ */
+export const FALLBACK_TEXT = '加载失败了😫'
+
+/**
+ * 错误码 → 卡片上那句话（`null` 不进这里）。
+ *
+ * ★ 七个码现在长得一模一样（用户 m00455 要求统一文案）。键**故意保留**：
+ *   它们是端点 body 里真实存在的 `error` 取值（private / games-private / no-key /
+ *   no-id / upstream / network / bad-response），排障时对着 Network 面板能立刻对上号。
+ *   想恢复「一种原因一句话」，把下面七个值各自换回原句即可 —— 调用方一行都不用动
+ *   （原句见本仓库 2026-10-10 之前的版本：私密 / 游戏详情私密 / 没配 key / 没配 ID /
+ *   暂时取不到 / 暂时取不到 / 数据看不懂）。
+ */
 export const STEAM_ERROR_TEXT: Readonly<Record<string, string>> = {
-  private: 'Steam 资料设为私密，读不到最近在玩',
-  'games-private': 'Steam「游戏详情」设为私密，读不到最近在玩',
-  'no-key': '端点还没配 Steam Web API key',
-  'no-id': '端点还没配 Steam ID',
-  upstream: '暂时取不到 Steam 数据',
-  network: '暂时取不到 Steam 数据',
-  'bad-response': '端点回的数据看不懂',
+  private: FALLBACK_TEXT,
+  'games-private': FALLBACK_TEXT,
+  'no-key': FALLBACK_TEXT,
+  'no-id': FALLBACK_TEXT,
+  upstream: FALLBACK_TEXT,
+  network: FALLBACK_TEXT,
+  'bad-response': FALLBACK_TEXT,
 }

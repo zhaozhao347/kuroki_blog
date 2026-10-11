@@ -150,7 +150,7 @@ function toTop() {
   <!-- slug 不存在：明确告知，不要留白屏 -->
   <div v-else class="project u-container missing">
     <p class="u-h4 u-muted">404</p>
-    <h1 class="u-h2-cn">找不到这个项目</h1>
+    <h1 class="u-h2-cn">加载失败了😫</h1>
     <p class="u-main u-muted">它可能被改名或删掉了。链接里的标识是「{{ props.id }}」。</p>
     <RouterLink to="/projects" class="btn">回到项目列表</RouterLink>
   </div>
