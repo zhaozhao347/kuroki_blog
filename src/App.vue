@@ -27,15 +27,27 @@
  * ★ 滚动位置复位交给 router 的 scrollBehavior（见 router/index.ts）。
  */
 import { onBeforeUnmount, onMounted } from 'vue'
-import { RouterView } from 'vue-router'
+import { RouterView, useRouter } from 'vue-router'
 import AppLoader from '@/components/AppLoader.vue'
 import CursorDot from '@/components/CursorDot.vue'
 import LiquidTransition from '@/components/LiquidTransition.vue'
+import { startFloatText } from '@/composables/floatText'
 import { destroySmoothScroll, initSmoothScroll } from '@/composables/motion'
 import { countPageView, hasViewsEndpoint } from '@/composables/siteViews'
 
+const router = useRouter()
+
+/**
+ * 文字浮水模式的卸载句柄（见 composables/floatText.ts）。
+ *
+ * ★ 装在这里 = 全站生效（404 页也装）：它不渲染任何东西，只监听播放状态，
+ *   暂停时把 DOM 原样还原、连一个节点都不留。
+ */
+let stopFloatText: (() => void) | undefined
+
 onMounted(() => {
   initSmoothScroll()
+  stopFloatText = startFloatText(router)
 
   // 站点浏览量：一次**整页加载**算一次（路由切换不重复计，见 siteViews.ts）。
   // ★ 没配 VITE_VIEWS_ENDPOINT 时一次请求都不发；失败也静默 —— 计数不该影响任何事。
@@ -43,6 +55,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  stopFloatText?.()
   destroySmoothScroll()
 })
 </script>

@@ -41,9 +41,10 @@ let playedThisPageLoad = false
  *      给 B + log 一段**本地**的上浮淡出，任何页面都不会「什么都不动就进页面」。
  *   ③ **标签页隐藏即收幕**：用户看不见，不必让遮罩在后台卡着。
  */
-import { onMounted, onBeforeUnmount, ref } from 'vue'
+import { nextTick, onMounted, onBeforeUnmount, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { animate, markBooted, prefersReducedMotion } from '@/composables/motion'
+import { openBootGate, whenWaterReady } from '@/composables/boot'
 
 const props = withDefaults(
   defineProps<{ durationMs?: number }>(),
@@ -64,6 +65,8 @@ const wordEl = ref<HTMLElement | null>(null)
 const caretEl = ref<HTMLElement | null>(null)
 /** 「Blog」整组（原地收尾要动它，见 localOutro） */
 const innerEl = ref<HTMLElement | null>(null)
+/** 预热窗口里那条「还在加载」的细线（纯 CSS 动画，见 warmup 的注释） */
+const warmupOn = ref(false)
 
 /** ★ 用来判断「有没有 hero 的 B 可飞」：`.hero-initial` 只存在于首页（`name: 'home'`）。 */
 const route = useRoute()
@@ -83,6 +86,18 @@ const FADE_DUR = 0.78 // 遮罩透明度缓降
  *   用户看到的就是「loader 的 B 和 hero 的 B 没对齐」。宁可多等一会儿，
  *   这本来就是「加载中」的画面，等 hero 到位再落地才是对的。 */
 const TARGET_WAIT_MS = 3200
+
+/* ── 预热窗口（用户 m00846）──
+ * 原话：「loading 动画也太卡了……你可以用一些延迟的手段，加入一小段时间的
+ * loading 动画，在这个简单动画期间进行其他动画的加载，观感会好很多」。
+ * 实测（dev 1440×900，longtask 追踪）：水彩初始化一次阻塞主线程 **633ms**，
+ * 正好压在飞行 / 淡出上。所以打字机打完之后先插一段**纯 CSS 动**的等待节拍
+ * （合成器驱动，主线程卡住也照样顺），并在这一刻打开闸门（`openBootGate()`），
+ * 让水彩在这个窗口里初始化；它就绪就提前收。
+ *   WARMUP_MIN_MS 下限 —— 太短会像"闪了一下"，必须是一拍；
+ *   WARMUP_MAX_MS 上限 —— 水彩再慢也不干等（whenWaterReady 自己也有超时）。 */
+const WARMUP_MIN_MS = 420
+const WARMUP_MAX_MS = 1600
 
 /* ── 兜底参数 ── */
 /* 整段编舞的硬上限。正常路径（首页、hero 到位）全程 ~2.2s；
@@ -117,6 +132,9 @@ let onVisibility: (() => void) | null = null
 function finish() {
   if (finished) return
   finished = true
+  /* ★ 收幕时一定有闸门已开的保证：水彩要能初始化（正常路径 warmup 早开了，
+     这是看门狗 / 标签页隐藏这些旁路的兜底）。 */
+  openBootGate()
   if (watchdog) {
     clearTimeout(watchdog)
     watchdog = 0
@@ -176,10 +194,16 @@ function fontsReady(timeoutMs = 800): Promise<void> {
   ])
 }
 
-/** 打字机：l → o → g 依次展开，光标一路跟在后面
+/** 打字机：l → o → g 依次出现，光标一路跟在后面
  *  ★ m06789 修复：改用 CSS transition 而不是 animate(...width) 关键帧 ——
  *    关键帧动画结束后 width 会不会保留取决于 fill，实测出现过「打完又缩回 0」
  *    的抖动；transition 的终点就是内联样式本身，稳定且不可能被回收。
+ *  ★★ 2026（用户 m00846「loading 动画也太卡了」）：把 width 过渡换成 **clip-path**。
+ *    旧写法每帧都在改三个字的 width ⇒ **每帧触发布局**，而 `.loader` 是一整屏
+ *    固定遮罩 ⇒ 整屏重绘；再加上外层 `justify-content: center`，"log" 变宽时
+ *    连 B 都在往左滑。现在布局从第一帧起就是最终形态，只做绘制裁剪；
+ *    光标改用 `translate`（合成器属性）跳格。实测主线程 600ms 级阻塞期间
+ *    打字机本身不再拖影。
  *  ★ typedOnce 幂等锁：这段只允许跑一次。 */
 let typedOnce = false
 async function typeWord() {
@@ -191,23 +215,39 @@ async function typeWord() {
   await fontsReady()
 
   const chars = Array.from(word.querySelectorAll<HTMLElement>('.loader-char'))
-  /* ★ 先一次性量完所有字宽，再统一置 0 —— 避免「量一个、改一个」的布局抖动。
-     ★ 未打出的字给 width: 0 + overflow: hidden，光标才会跟着打字位置走；
-       只改 opacity 的话光标会一直停在整词末尾。 */
+  /* ★ 先一次性量完所有字宽（一次布局读），再改样式 —— 避免「量一个、改一个」的抖动 */
   const widths = chars.map((el) => el.getBoundingClientRect().width)
+  const total = widths.reduce((a, b) => a + b, 0)
+
   chars.forEach((el) => {
-    el.style.width = '0px'
-    el.style.overflow = 'hidden'
+    el.style.clipPath = 'inset(0 100% 0 0)'
     el.style.opacity = '1'
   })
-  if (caret) caret.style.opacity = '1'
+  if (caret) {
+    caret.style.opacity = '1'
+    caret.style.translate = `${-total}px 0`
+  }
 
-  /* 强制一次回流，让上面的 0px 成为 transition 的起点（否则同帧写入会被合并） */
+  /* 强制一次回流，让上面的起点成为 transition 的真正起点（否则同帧写入会被合并） */
   void word.offsetWidth
 
   chars.forEach((el, i) => {
-    el.style.transition = `width ${TYPE_DUR}s ease-out ${i * TYPE_STEP}s`
-    el.style.width = `${widths[i]}px`
+    /* steps(1, end)：整字一次性显出来（真打字机的观感），不是从左往右擦 */
+    el.style.transition = `clip-path ${TYPE_DUR}s steps(1, end) ${i * TYPE_STEP}s`
+    el.style.clipPath = 'inset(0 0 0 0)'
+    if (caret) {
+      /* 光标跳到这个字的右边缘（负位移 = 从词尾往回退，见上面的 -total） */
+      const typed = widths.slice(0, i + 1).reduce((a, b) => a + b, 0)
+      caret.style.transition = `translate ${TYPE_DUR}s steps(1, end) ${i * TYPE_STEP}s`
+      caret.style.translate = `${typed - total}px 0`
+    }
+  })
+
+  /* ★★ 必须等最后一个字真的打出来再返回：上面只是「发射 CSS transition」，
+     `await typing` 立刻 resolve 的话，后面的预热节拍/飞行会在打字还没打完时就开始
+     （实测 warm 阶段在 t=67ms 就来了，而打字机要到 420ms 才结束）。 */
+  await new Promise<void>((r) => {
+    timers.push(window.setTimeout(r, (TYPE_DUR + 2 * TYPE_STEP) * 1000))
   })
 }
 
@@ -385,6 +425,51 @@ async function flyToHeroB(): Promise<() => void> {
   return () => cancelAnimationFrame(glue)
 }
 
+/**
+ * 预热窗口：打字打完之后的一段「还在加载」的节拍。
+ *
+ * ★ 这一段存在的意义不是好看，而是**给重活腾一个不刺眼的窗口**：
+ *   打开闸门 → 水彩开始编译着色器（实测 633ms 主线程阻塞）；
+ *   与此同时屏幕上那条细线是 `@keyframes` 驱动的（走合成器），
+ *   主线程被占住也不会卡 —— 这正是用户要的「丝滑」。
+ * ★ 下限 420ms：太短会像"闪了一下"；上限 1600ms：水彩再慢也不干等。
+ */
+async function warmup(): Promise<void> {
+  warmupOn.value = true
+  /* ★★ 先让细线**真的画出来**，再放重活进来：水彩初始化会一口吃掉 400~600ms
+     主线程，如果这两步挨着做，细线要等那口气松了才有机会上屏（实测第一帧
+     被推迟 210ms，屏幕上就是"卡住"而不是"在转"）。等两帧 = 已经合成过一帧。 */
+  await nextTick()
+  await new Promise<void>((r) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => r()))
+  })
+
+  const t0 = performance.now()
+  openBootGate()
+
+  const work = (async () => {
+    await fontsReady(600)
+    const waits: Array<Promise<unknown>> = []
+    if (route.name === 'home') {
+      /* hero 的 B 到位（飞行的落点）+ 水彩第一帧（后者是那 633ms 的来源） */
+      waits.push(waitForEl('.hero-initial', TARGET_WAIT_MS))
+      waits.push(whenWaterReady())
+    }
+    await Promise.all(waits)
+  })()
+
+  await Promise.race([work.catch(() => undefined), sleep(WARMUP_MAX_MS)])
+  const left = WARMUP_MIN_MS - (performance.now() - t0)
+  if (left > 0) await sleep(left)
+  warmupOn.value = false
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise<void>((r) => {
+    timers.push(window.setTimeout(r, ms))
+  })
+}
+
 async function play() {
   const root = rootEl.value
   if (!root || finished) return
@@ -408,6 +493,10 @@ async function play() {
   })()
 
   await done
+  if (cancelled || finished) return
+
+  /* ①½ 预热窗口：打开闸门让水彩初始化，同时屏幕上一直是顺的（见 warmup 注释） */
+  await warmup()
   if (cancelled || finished) return
 
   /* 收掉打字机（只降透明度，保留占位：B 的布局位置不能被挪动） */
@@ -441,6 +530,7 @@ async function play() {
 
 function skip() {
   finished = true
+  openBootGate()
   show.value = false
   markBooted()
 }
@@ -466,6 +556,8 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   cancelled = true
+  /* 组件都没了就别再让水彩等闸门 */
+  openBootGate()
   if (watchdog) clearTimeout(watchdog)
   watchdog = 0
   if (onVisibility) document.removeEventListener('visibilitychange', onVisibility)
@@ -509,6 +601,11 @@ onBeforeUnmount(() => {
             >g</span
           ><span ref="caretEl" class="loader-caret"></span>
         </span>
+
+        <!-- 预热窗口的「还在加载」细线：纯 CSS 动画（合成器驱动），主线程卡住也不会抖 -->
+        <span v-if="warmupOn" class="loader-track" aria-hidden="true">
+          <span class="loader-track-head"></span>
+        </span>
       </div>
     </div>
   </Teleport>
@@ -532,6 +629,7 @@ onBeforeUnmount(() => {
 
 /* 与 hero 的 `.hero-brand-row` 同一套排版：底对齐 → log 的基线贴 B 的底边 */
 .loader-inner {
+  position: relative;
   display: flex;
   align-items: flex-end;
   gap: 0;
@@ -560,7 +658,47 @@ onBeforeUnmount(() => {
   display: inline-block;
   opacity: 0;
   vertical-align: bottom;
-  will-change: width;
+}
+
+/* ── 预热窗口的细线 ──
+ * 1px 的水平线 + 一小段亮头从左往右扫。**只用 transform / opacity**，
+ * 所以它跑在合成器上：主线程被水彩初始化占住 600ms，这条线照样是顺的。
+ * ★ 宽度取 `max(10rem, 100%)` 并居中：`.loader-inner` 只有约 64px 宽
+ *   （B 31 + log 27），照它铺一条线在 1440 屏上几乎看不见（实测 1px × 64px）。
+ *   10rem 的横线像是 "Blog" 底下的一道水线/进度轨，比例才对。 */
+.loader-track {
+  position: absolute;
+  left: 50%;
+  bottom: -0.72em;
+  width: max(10rem, 100%);
+  height: 1px;
+  translate: -50% 0;
+  overflow: hidden;
+  background-color: color-mix(in srgb, var(--text) 22%, transparent);
+}
+
+.loader-track-head {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 34%;
+  background-image: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--text) 85%, transparent),
+    transparent
+  );
+  animation: loader-track-sweep 1.15s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+@keyframes loader-track-sweep {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(300%);
+  }
 }
 
 .loader-caret {

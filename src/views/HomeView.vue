@@ -3,6 +3,7 @@ import { onBeforeUnmount, onMounted, ref } from 'vue'
 import InitialLetter from '@/components/InitialLetter.vue'
 import MusicBar from '@/components/MusicBar.vue'
 import NextButton from '@/components/NextButton.vue'
+import LyricStage from '@/components/LyricStage.vue'
 import SoundLine from '@/components/SoundLine.vue'
 import WaterBody from '@/components/WaterBody.vue'
 import { animate, prefersReducedMotion, scroll, whenBooted } from '@/composables/motion'
@@ -466,6 +467,11 @@ onBeforeUnmount(() => {
          ★ m06383：这一层同时是「天空遮罩」——波线以上刷天空色、以下透明。 -->
     <SoundLine />
     <WaterBody />
+
+    <!-- 歌词层：上一句右上 / 当前句正中 / 下一句左下（音乐栏同页，共用 player 的时钟）。
+         ★ 必须是 .hero-contain 的**兄弟**、且排在 WaterBody 之后：z-index 同层，
+           靠 DOM 顺序压在文字与水面之上（见组件注释）。 -->
+    <LyricStage />
   </section>
 </template>
 

@@ -146,6 +146,12 @@
   --font-mono: 'JetBrains Mono Variable', 'SFMono-Regular', Consolas, ui-monospace, var(--font-cn);
   /* tertiary：巨型标题，超粗压缩 */
   --font-display: 'Anton', Impact, var(--font-cn);
+  /* 歌词层专用：衬线斜体（Cormorant Garamond 500 italic）。
+     ★ 只给 `components/LyricStage.vue` 用 —— 中文没有衬线斜体字形，会落到
+       `--font-cn`，所以后面必须带兜底；`font-style: italic` 由组件自己声明。
+     ★ 不要把它当成「第四套正文字体」到处用：Cormorant 的字面很小、笔画很细，
+       在 14~16px 正文尺寸上会发虚（它本来是为大字号设计的）。 */
+  --font-lyric: 'Cormorant Garamond', Georgia, 'Times New Roman', var(--font-cn);
 
   /* --- 字号（照搬原站） --- */
   --fs-h2: 1.375rem; /* 22px 区块标题 */
@@ -786,5 +792,56 @@ code {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+  }
+}
+
+/* ==================== 文字浮水 ==================== */
+/*
+ * 播放时首屏 hero 的字形轻轻浮起来（暂停后 DOM 被还原成纯文本，这些规则随即失效）。
+ * 实现与理由见 composables/floatText.ts；节拍来源见 composables/beat.ts。
+ *
+ * ★★ 只作用于 **hero**（`section.hero[data-float='on']`）—— 用户 m00787：
+ *    文章正文逐字浮动会降低可读性，正文/导航/页脚一律保持静止。
+ *    `[data-float]` 这个属性挂在 hero 元素上（不是 html），所以下面这些规则
+ *    在页面其它地方永远匹配不到。
+ * ★★ 性能约定：每帧只有 3 个变量在变（--float-t / --float-beat / --float-k，
+ *    都写在 hero 元素上属于它自己），**逐字的三角函数交给 CSS 自己算**。
+ *    反过来（每帧给每个字写内联 transform）在几百个字时直接掉帧。
+ * ★ 只动 translate / rotate / scale 三个独立属性（不碰 transform），
+ *   这样组件自己的 transform 动画（歌词进出场、NEXT 位移）互不打架。
+ */
+
+[data-float='on'] .fchar,
+[data-float='on'] .fchar-el {
+  /* 本字自己的行波相位：序号越大越靠后，再叠一点固定抖动 —— 不然整排字会同步齐动 */
+  --_ft-phase: calc(
+    var(--float-i, 0) * 0.42 - var(--float-t, 0) * 1.55 + var(--float-j, 0) * 3.1416
+  );
+  display: inline-block;
+  /* 转轴偏下：像字浮在水里、下半截浸着，而不是绕正中转 */
+  transform-origin: 50% 72%;
+  /* 浮动：px 固定量，与字号无关（大标题与正文的起伏幅度才一致） */
+  translate: 0 calc(sin(var(--_ft-phase)) * 2.4px * var(--float-k, 0));
+  /* 微角度：固定偏角（每个字不同） + 随波轻摆 */
+  rotate: calc(
+    var(--float-r, 0deg) + sin(calc(var(--_ft-phase) * 0.72 + 1.1)) * 0.85deg * var(--float-k, 0)
+  );
+  /* 节奏律动：--float-beat 是真实鼓点包络（0..1），乘各自的幅度 --float-a */
+  scale: calc(var(--float-s, 1) + var(--float-beat, 0) * var(--float-a, 0));
+}
+
+/* 英文单词外壳：让断行只发生在词与词之间（逐字拆开后否则会在词中间断行） */
+[data-float='on'] .fword {
+  display: inline-block;
+  white-space: nowrap;
+}
+
+/* 兜底：中途打开「减少动态效果」时整体压平（正常情况下 floatText.ts 根本不会启动） */
+@media (prefers-reduced-motion: reduce) {
+  [data-float='on'] .fchar,
+  [data-float='on'] .fchar-el {
+    translate: none;
+    rotate: none;
+    scale: none;
   }
 }

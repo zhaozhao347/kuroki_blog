@@ -150,7 +150,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="music-bar" :class="{ 'is-playing': isPlaying, 'is-empty': !hasTracks }">
+  <div class="music-bar" data-no-float :class="{ 'is-playing': isPlaying, 'is-empty': !hasTracks }">
     <!-- 无曲目：只有一种真实原因 —— 生产构建没配 VITE_MUSIC_ENDPOINT。
          ★★ 用户 m00455：这句话也统一成兜底那一句（不再把配置指引摊给访客看）。
          配置方法留在这里备查：把 VITE_MUSIC_ENDPOINT 指向 workers/api/ 的部署地址。 -->

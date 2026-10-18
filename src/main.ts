@@ -4,6 +4,12 @@ import { createApp } from 'vue'
 import '@fontsource-variable/inter'
 import '@fontsource-variable/jetbrains-mono'
 import '@fontsource/anton'
+/* 歌词层专用衬线（hero 的三句歌词，见 components/LyricStage.vue）。
+ * ★ 只引 **latin / 500 / italic** 这一子集：完整 Cormorant Garamond 有 9 个字重 ×
+ *   3 种字形 × 6 个子集，全引会是几 MB。中文交给 `--font-lyric` 的兜底字体。
+ * ★ 这个文件只在页面里真有元素用到该字族时才会下载 —— 歌词层是播放后才出现的，
+ *   所以它**不进首屏关键路径**（`npm run budget` 的首屏 88 KB 门槛不受影响）。 */
+import '@fontsource/cormorant-garamond/latin-500-italic.css'
 
 import './style.css'
 import App from './App.vue'

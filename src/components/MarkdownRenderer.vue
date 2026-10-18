@@ -198,6 +198,16 @@ defineExpose({ rootEl })
 .markdown-body {
   /* 正文色：纯白略降一点，长文阅读更柔和 */
   color: color-mix(in srgb, var(--text) 92%, transparent);
+  /* ★★ 长 URL / 长 token 必须能断行 —— 否则整页横向溢出。
+     实测（2026-10-12 上线前体检）：正文里一条 170 字的裸链接
+     （`https://example.com/aaa…`）在 390px 视口下把文档宽度撑到 **1770px**
+     （`document.documentElement.scrollWidth`），即 4.5 倍溢出、整页出现横向滚动条；
+     同一个段落自己的 `scrollWidth` 是 1738 而盒子宽只有 316。
+     代码块与表格**不需要**这条（`pre` 与 `.md-table-wrap` 各自 overflow-x: auto，
+     实测 220 字单行代码 / 6 列宽表的 scrollWidth 都被容器收住了），
+     真正裸奔的只有正文里的不可断字符串。
+     写在 `.markdown-body` 上由段落 / 标题 / 列表 / 单元格继承，不必逐个写。 */
+  overflow-wrap: break-word;
 }
 
 /* ---- 段落 ---- */

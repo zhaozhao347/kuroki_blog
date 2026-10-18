@@ -3,7 +3,7 @@
 > **给 AI 编码助手的上手文档。** 读完这一份即可开始改动，不必再翻历史对话。
 > 这里记录的是**事实**（当前代码的真实状态）与**约束**（改了会坏的地方）。
 >
-> 文档基线：**2026-09-22**。若代码与此文档冲突，**以代码为准**，并顺手更新本文档。
+> 文档基线：**2026-10-14**。若代码与此文档冲突，**以代码为准**，并顺手更新本文档。
 >
 > 配套文档：`DEVELOPMENT.md`（面向人的详细开发文档 + 灵感池）、`README.md`（快速开始）。
 
@@ -25,13 +25,17 @@
       改文章系统前先读 §8（内容约定 + 图片 + 校验行为 + CI）
       改 MusicBar / MusicBall / 曲目 / 网易云端点先读 §5.7（两行结构 + --mb-wipe 擦除 + 曲目抽屉）
       动边缘函数（浏览量 / 音乐 / Steam）先读 §5.16（workers/api/ 一个 Worker 三件事）
+      改歌词（新增 lrc / 三句摆位 / 时间轴偏移）先读 §5.17（本地 lrc + 懒加载 + `--band-half`）
+      改 hero 逐字浮水 / 播放律动先读 §5.18（只 hero、逐字栅格化会掉到个位数 fps）
+      动 AppLoader 时序 / 首屏空白 / 水体初始化先读 §5.14（clip-path 打字机 + warm-up 闸门 + boot.ts）
 ```
 
 **当前状态**：
 
 - 文章完全由 `content/posts/*.md` 驱动（不再是写死的数组）
 - 类型检查与构建通过；回归基线（7 页面 × 6~13 视口）全通过
-- **Git 仓库尚未初始化** —— CI/CD 配置已就绪但推不上去（见 §12）
+- **Git 已初始化**（首个提交 `62d4fdd`，2026-10-10）—— `master` 跟踪 `origin`；
+  ★ 站点还没上线，见 §11 未完成项
 
 ---
 
@@ -104,6 +108,7 @@ src/
 ├─ projects.ts            # 项目**门面层**：数据来自 `virtual:projects`（content/projects/*.md）；只有 slug / title / date / summary / cover + 派生 year / image，见 §5.12
 ├─ pages.ts               # 页面**门面层**：数据来自 `virtual:pages`（content/pages/*.md），见 §5.13
 ├─ playlist.ts            # 音乐曲目清单（**唯一真相源**：网易云 id + 手写元数据 + 端点拼 URL，见 §5.7）
+├─ lyrics/*.lrc           # 歌词（**文件名 = playlist.ts 的 slug**；`import.meta.glob` 懒加载，每首一个独立 chunk，见 §5.17）
 ├─ assets/works/*.avif    # 通用作品图池（项目 md 的 cover 可写 `works/xx.avif`；**只有被引用的才进 dist** —— 2026-10-08 两轮清洗后 6 张全删，图池现在是空的；要用图就把文件丢回这个目录）
 ├─ components/
 │  ├─ AppLoader.vue       # 首屏载入（**每次整页加载**播一次；卡死/没位移的三条兜底见 §5.14）
@@ -115,6 +120,7 @@ src/
 │  ├─ MusicBall.vue       # 音乐球（非首页的右下浮动球 + 面板：环状进度 + 走带键 + 曲目列表，见 §5.7）
 │  ├─ SiteStats.vue       # 「关于」页侧栏的站点统计卡（文章 / 标签 / 总字数 / 浏览量，见 §5.13）
 │  ├─ SteamCard.vue       # 「关于」页**右栏**那张卡：Steam「最近在玩」（★ 没配端点就整个不渲染，见 §5.16）
+│  ├─ LyricStage.vue      # hero 上的歌词层：上一句右上 / 当前句正中 / 下一句左下（纯文字、pointer-events: none，见 §5.17）
 │  ├─ NextButton.vue      # 「N ext」翻页按钮（各页共用，见 §5.6）
 │  ├─ SoundLine.vue       # 音频线（兼画 hero 渐变 + 线下填充）
 │  └─ CursorDot.vue       # 跟随光标的半透明白圆（挂 App.vue，404 页也生效；按下时微微收缩 —— scale 写在 transform 末尾，见组件注释）
@@ -123,6 +129,7 @@ src/
 │  ├─ siteViews.ts        # 站点浏览量（PV）：POST 计一次 / GET 读总数；端点由 VITE_VIEWS_ENDPOINT 注入，没配就不发请求（见 §5.13）
 │  ├─ steam.ts            # Steam「最近在玩」：读 /steam + 5 分钟模块级缓存 + 并发去重，失败一律吞成可显示状态（见 §5.16）
 │  ├─ motion.ts           # Lenis 单例 / prefersReducedMotion / 启动信号（`whenBooted()` = 等 AppLoader 掀幕）
+│  ├─ lyrics.ts           # useLyrics：`onFrameTime()` → 二分定行 → { prev, now, next }（见 §5.17）
 │  └─ typewriter.ts       # useTypewriter：格言逐字出现 + 打完后光标淡出；reduced-motion 直接给全文（见 §5.13）
 ├─ directives/magnetic.ts, reveal.ts, imgFallback.ts   # imgFallback（`v-img-fallback`）：图 404 / 坏图时给 img 加 `.is-broken`、父级 `.has-broken-img`（CSS 在 style.css —— ★ 图只能 `visibility: hidden`，`display: none` 会让带 aspect-ratio 的框塌掉；占位文字与对角线一律 `currentColor` + `opacity: .45`，米色卡里随 `--brand`、蓝底上随 `--text`）
 ├─ layouts/DefaultLayout.vue   # 导航 + main + 页脚（含毛玻璃重叠检测、视图过渡）
@@ -715,7 +722,7 @@ export function createRenderer(canvas: HTMLCanvasElement) {
 当天选了「手写外壳 + wavesurfer 波形」并做完、实测全绿；随后用户（m10392）说
 「不用这个真实波形了」⇒ **代码与依赖都已撤掉**（`npm uninstall wavesurfer.js`，
 `src/composables/player.ts` 也不再导出 `getAudioElement()` / `absoluteTrackUrl()`），
-行 2 回到纯细轨。★ **别再自己加回来** —— 本仓库没有 git，「加回来」等于重写一遍下面的坑。
+行 2 回到纯细轨。★ **别再自己加回来** —— 撤掉发生在仓库首个提交（2026-10-10）之前，git 历史里也没有它，「加回来」等于重写一遍下面的坑。
 
 万一将来又要上，记住这些（都是那次实测踩出来的）：
 
@@ -887,7 +894,7 @@ meshopt 解码器 ~25 KB 且 three 的 `examples/jsm/libs/` 自带 ——
 
 ### 5.12 项目板块（Projects）：md 驱动 + 共用 `content-kit.ts`（2026-10-07）
 
-★★ **用户 m09009：「算了，我突然觉得评论太臃肿了，完全去掉这个板块换成 project 板块吧」** —— 留言板（总评）**整块删除**：`src/views/GuestbookView.vue`、`src/composables/comments.ts`、`/guestbook` 路由、nav 第五项 `Talk`、页脚「留言」、文章末尾「说点什么 →」（含 `.to-talk` 样式）。**别再加回来**（本仓库没有 git，「加回来」等于重写）。现在 nav 第五项 = **Projects** → `/projects`。
+★★ **用户 m09009：「算了，我突然觉得评论太臃肿了，完全去掉这个板块换成 project 板块吧」** —— 留言板（总评）**整块删除**：`src/views/GuestbookView.vue`、`src/composables/comments.ts`、`/guestbook` 路由、nav 第五项 `Talk`、页脚「留言」、文章末尾「说点什么 →」（含 `.to-talk` 样式）。**别再加回来**（撤掉早于仓库首个提交 2026-10-10，git 历史里也没有它，「加回来」等于重写）。现在 nav 第五项 = **Projects** → `/projects`。
 
 ★★ **2026-10-08 大清洗：`content/projects/` 下两条占位项目（`2026-09-28-blog` / `2026-08-16-typeset-lab`）已随文章一起删除**（★ 原文件所在的 `%TEMP%\dsh-cleanup-backup` 已于 2026-10-09 按用户要求整目录删除），只留 `_TEMPLATE.md`；列表空态文案同时从「项目还在整理 —— 之后会陆续放上来。」改成 **「这里还没有项目。」**（与文章空态一致）。
 
@@ -1164,6 +1171,57 @@ links:                                    # 可选：YAML 数组
 ⚠️ 探针里 `Object.defineProperty(document, 'hidden', { get: () => true })` 后要**手动派发** `visibilitychange`，
 否则监听器不会跑；钩子时刻要早于自然收幕（首页 ~2.2s），否则测的其实是正常路径。
 
+#### ★★ 预热窗口：把重活藏进一段「还在加载」（2026-10-15，用户 m00846）
+
+用户原话：「loading 动画也太卡了，我希望可以丝滑一些，或者说你可以用一些延迟的手段，
+比如说再加入一小段时间的 loading 动画，在这个动画期间进行其他动画的加载，观感会好很多」。
+
+**实测根因**（dev 1440×900，`PerformanceObserver('longtask')` + rAF 帧间隔）：
+
+| 时刻 | 阻塞 | 是什么 |
+| --- | --- | --- |
+| ~300 ms | ~340–660 ms | 入口 chunk 求值 —— **此时 `style.css` 还没到，浏览器按白底画第一帧** |
+| ~1000–1600 ms | **633 ms** | 水彩初始化（`new Fluid(host)` + `start()` 编译十几个着色器） |
+| 原编舞里上一条**正撞在飞行/淡出上** | | 视觉上就是「loading 卡住」 |
+
+**现在的编舞**（`AppLoader.vue` 的 `play()`）：
+
+```
+打字机（420ms）→ 预热窗口（≥420ms，屏幕上是 .loader-track 那条纯 CSS 细线）
+              → 收打字机 → 飞行（0.72s）→ 淡出（0.78s）→ 收幕
+```
+
+- `WARMUP_MIN_MS = 420`（太短会像"闪了一下"）、`WARMUP_MAX_MS = 1600`（水彩再慢也不干等）。
+- ★★ **先上屏，再放重活**：`warmupOn = true` 之后必须 `await nextTick()` + **两帧 rAF**，
+  确认细线已经合成过一帧，才 `openBootGate()`。否则水彩那 400–600ms 会**吃掉细线的首帧**
+  （实测细线被推迟 210ms，屏幕上就是"卡住"而不是"在转"）。
+- ★★ **细线只能用 `transform` / `opacity`**（`@keyframes` 扫光）—— 它要跑在主线程被占满的那 600ms 里；
+  任何会触发 layout 的写法（改 `width`）都会跟着卡。
+- ★★ `typeWord()` **必须在 `await` 里等够 `TYPE_DUR + 2 * TYPE_STEP`**：它只是「发射 CSS transition」，
+  立刻 resolve 的话预热窗口会在打字还没打完时就开始（实测 warm 在 t=67ms 就来了，而打字机要 420ms）。
+- ★ 打字机从「改三个字的 `width`」改成 **`clip-path: inset(0 100% 0 0)`**：
+  旧写法每帧触发布局，而 `.loader` 是一整屏 fixed 遮罩 ⇒ **每帧整屏重绘**，
+  外加外层 `justify-content: center`，"log" 变宽时连 B 都在往左滑。现在布局第一帧就是终态，只做绘制裁剪；
+  光标改用 `translate` 跳格（合成器属性）。
+- ★ `index.html` 里内联了一段**首屏底色**（`html` 背景 + `html::before` 渐变，颜色与 §3.1 一致）：
+  否则入口 chunk 那 500ms 里用户看到的是**白屏**再变深蓝。那段与 `src/style.css` 的
+  `html::before` 是同一份颜色，**改配色要两边一起改**；`z-index: -1` 不能省，否则会盖住 `#app`。
+
+**`src/composables/boot.ts`（闸门与就绪信号，两个都带超时兜底）**
+
+| API | 谁调 | 语义 |
+| --- | --- | --- |
+| `openBootGate()` | Loader 的 `warmup()` / `finish()` / `skip()` / `onBeforeUnmount` | 幂等打开闸门 |
+| `whenBootGateOpen(timeoutMs = 2600)` | `WaterBody.onMounted` | 等闸门；**自带超时**，Loader 被跳过（reduced-motion / 后台标签页 / 已播过）时水彩不会永远缺席 |
+| `markWaterReady()` | `WaterBody` 在 `start()` + 两帧 rAF 之后 | 水彩已经能画了 |
+| `whenWaterReady(timeoutMs = 1300)` | Loader 的 `warmup()` | 提前收窗；WebGL 不可用时靠超时 |
+
+★ `WaterBody` 的顺序是「**先启动 `import()` 下载（不占主线程）→ `await whenBootGateOpen()` → `new Fluid`**」，
+不是「等闸门再下载」。放错就会白等一次网络往返。
+
+★ 实测复测（`.tmp-boot2.mjs`）：`warm 1217→1715 ms`，那 194ms 的 longtask 落在 **1273–1467**（窗口内），
+窗口结束后的飞行+淡出（1715→3215）**没有一帧超过 70ms**。
+
 ---
 
 ### 5.15 文章列表页卡片（`/articles` 的 `.grid` / `.card`）的 hover（2026-10-07）
@@ -1266,8 +1324,223 @@ certificate…)"}`，那是**本机证书链问题**（本机 Node 自带 CA 包
 
 ---
 
-## 6. 陷阱清单（改动前扫一眼）
+### 5.17 歌词层：`LyricStage.vue` + `composables/lyrics.ts` + `src/lyrics/*.lrc`（2026-10-14）
 
+用户 m00111：「做个歌词功能，上一句歌词在右上角，现在歌词在正中心，下一句在左下角，之后我们详细改」
+⇒ 首版就是这三句、三个角，**不加封面/歌手/进度**，位置细节等他看过后再调。
+
+| 件 | 作用 |
+| --- | --- |
+| `src/lyrics/<slug>.lrc` | 歌词本体。**文件名 = `playlist.ts` 里那首的 `slug`** |
+| `src/lyrics/index.ts` | `import.meta.glob('./*.lrc', { query: '?raw', import: 'default' })`（**懒加载**）+ `parseLrc()` |
+| `src/composables/lyrics.ts` | `useLyrics()` → `{ lines, index, prev, now, next }`，订阅 `onFrameTime()` |
+| `src/components/LyricStage.vue` | 三句的摆位与进出场（纯文字、`pointer-events: none`），挂在 `HomeView` 的 `.hero` 里 |
+| `src/composables/player.ts` | 新增 `onFrameTime(cb)`（逐帧 `audio.currentTime`，返回取消函数） |
+
+**为什么歌词是本地文件、不走接口**：网易云 `/api/song/lyric` 和 playurl 一样**不给 CORS 头**，
+浏览器直连会被拦；走 Worker 又要多一条路由 + 重新部署。全站只有两首静态歌词，打进仓库最省事。
+★ 缺点是加歌要手动配一份 lrc —— 将来歌多了再考虑接口，别现在提前抽象。
+
+★★ **`import.meta.glob` 一定不能加 `{ eager: true }`**：那会把所有歌词塞进入口 chunk（首屏预算 88 KB gz）。
+现在每首一个独立 chunk（实测 `world-goes-round-*.js` = 1.31 KB raw / 0.59 KB gz），
+**没人点播放就一个字节都不下**。全量 `npm run check` 已跑过：首屏仍 71 KB gz。
+
+**`parseLrc()` 处理的四个坑**（都有注释，改之前先读）：
+一行多个时间轴（副歌复用）→ 每个时间轴各出一行；`[ar:]/[by:]` 元数据行天然匹配不上（正则要求冒号前是数字）；
+同一时间戳重复 → 只留第一条；**空文本行丢掉**（纯时间轴行没有可显示内容）。
+★ 不解析 `[offset:]`：整体平移只允许改 `composables/lyrics.ts` 的 `LEAD`，两个偏移量来源迟早打架。
+
+**同步**：`onFrameTime()` 每帧送来 `audio.currentTime`，二分找「最后一个 `t ≤ seconds + LEAD`」的行。
+- ★ `LEAD = 0.18`：字幕晚于声音最难看，提前 180ms。
+- ★ **只在 `found !== index.value` 时写 ref** —— 每帧写 ref 等于每秒让组件重渲染 60 次。
+- ★ 歌词**异步载入完成时要用 `lastSeconds` 补算一次下标**，否则刷新后从恢复位置继续播、
+  或中途切回这首歌，会从第一句开始显示直到下一句才「跳」到位。
+- ★ 切歌用 `token` 令牌防竞态（快速连点下一首，旧请求的结果必须丢掉）。
+- ★ LRC 来得比 `current` 晚是常态：`index = -1` 时 `prev` 为 `undefined`、`now` 也 `undefined` ——
+  模板里三句都 `v-if`，不会渲染出 `undefined`。
+
+**版面（三句 + 两个「已退场/待进场」槽位）**
+
+★ 2026-10-15 重做（用户 m01134）：**不再用三个 `<Transition>`，而是把整首歌的句子
+全部渲染进 DOM**（这首 31 句），按「离当前句的距离」给每句一个 `data-slot`；
+槽位只决定 `left / top / translate / font-size / opacity`，五个属性都带 transition
+⇒ 换句时所有句子一起**沿槽位链滑动**（见下面「动效」）。
+
+| 槽位 | 定位 | 字号 |
+| --- | --- | --- |
+| `[data-slot='now']` | `left: 50%`；`top: calc(50% + var(--band-half, 72px) + 1.25rem)`；`translate: -50% -50%`；居中；`max-width: min(46ch, 76vw)` | `clamp(1.3rem, 2.15vw, 2rem)` |
+| `[data-slot='prev']` | `left: calc(100% - var(--site-margin) - 2rem)`；`top: calc(var(--nav-h) + 1.75rem)`；`translate: -100% 0`；右对齐 | `clamp(1.05rem, 1.28vw, 1.22rem)` |
+| `[data-slot='next']` | `left: calc(var(--site-margin) + 2.25rem)`；`top: calc(100% - var(--site-margin) - 2.5rem)`；`translate: 0 -100%` | 同上 |
+| `[data-slot='above']` | 右上再往外 1.1rem、`translate: -100% -100%`、`opacity: 0` | `clamp(0.95rem, 1.06vw, 1.04rem)` |
+| `[data-slot='below']` | 左下再往下 1.1rem、`translate: 0 0`、`opacity: 0` | 同上 |
+
+实测（1440×900，settled）：`now` 盒 533,519 363×45 字号 31.0；`prev` 1257,100 125×31 字号 18.4；
+`next` 52,813 230×31 字号 18.4；`scrollW 1430 / innerW 1440`（无横向溢出）。
+390×844：`now` 76,447 229×28 字号 19.5；上下两句 14.4；`scrollW 380 / innerW 390`。
+
+★★ **当前句绝不能写 `top: 50%`**：hero 的海平面（`SoundLine` 波带）正好在正中，
+波带高 `--band-h` = 振幅 × 3.6（144px）。实测 1440×900：字框 464~511、波带 378~522 ⇒ **整句都泡在波带里被波峰穿字**。
+让出半个波带后落在波带下沿外侧，视觉上仍站在画面中线附近，波线变成句子头顶的一道水线。
+★ 也别改成「视口 50%」：hero 顶部有 `--nav-h` 的内边距，**内容区中线比视口中线低 36px**，两套基准混用两边都不居中。
+★ `--band-half` 定义在 `.hero` 上（不是 `.hero-contain`）—— 这正是 §4.2 陷阱 1：
+兄弟节点只读得到 `.hero` 上的变量。没有就兜底 72px。
+
+★ **两个角的两句是给角标让位的**（角标见 §4.6，`--corner-w` 实测 11~14px）：
+1440 实测上一句文字右边缘 1382 / ⌐ 竖臂内沿 1402；下一句文字左边缘 52 / L 竖臂右沿 27.5，
+文字下边缘 844 / 横臂上沿 888。**改角标尺寸（`--brand-h` 的 0.3 与 0.03 两个系数）后这两组 `calc` 要重新量。**
+★ 上下两句是 `color-mix(--text 88%)`，当前句 100%。
+★ `text-shadow: 0 2px 26px color-mix(--bg 55%)` 负责把字从水色里托起来。
+**不要加半透明底板** —— 底板会在波线两侧切出一条硬边。
+
+**字体**：整层 `font-family: var(--font-lyric)` = **Cormorant Garamond 500 italic**
+（`src/style.css` 的令牌，`main.ts` 里 `import '@fontsource/cormorant-garamond/latin-500-italic.css'`）。
+- ★ 只引 **latin / 500 / italic** 一个子集（woff2 23 KB）：完整字族有 9 字重 × 3 字形 × 6 子集。
+  **不进首屏关键路径** —— 歌词层只在播放后出现，没人播放就不下这个字体（`npm run check` 首屏仍 76 KB gz）。
+- ★★ **整层共用同一个字族，不要让 `now` 单独换字族**：换句时元素会在槽位之间滑，
+  字族一变就是「啪」地换形（`font-family` 不可插值）。分层靠**字号 + 明度**，不靠字体。
+- ★★ **`font-synthesis: none` 不能删**：中文没有衬线斜体字形，浏览器会合成「斜切」，
+  `作曲 : 岩崎太整` 这种中文行会整行歪掉。关掉合成后拉丁文走真斜体、中文保持正体。
+
+**动效（用户 m01134：下一句缓入正中 ← 当前句缓入右上 ← 上上一句浮走）**
+
+```css
+transition: left .9s cubic-bezier(.4,.02,.18,1), top .9s …,
+            translate .9s …, font-size .9s …, opacity .62s ease, color .9s ease;
+```
+★ 因为**节点不增不减**、只是换 `data-slot`，浏览器把位移/字号/透明度插值成一条连续运动，
+不会出现「先出后进」的两段式闪断（那是 `mode="out-in"` 的 Transition 才有的）。
+★ **缓动曲线别用 `(.22,.72,.18,1)`**：实测跨句后 150ms 就走完 55%、字号从 16px 弹到 29px，
+观感是「跳」过去。现在这条起步慢、中段匀、末尾收住（实测 200ms 时 `now` 还在下方 y≈655、字号 24.3；
+450ms 已到 y≈524 / 字号 30.7）。
+★★ **绝不用 `scale` 缩放代替 `font-size`**：缩放是位图放大，动画期间文字边缘会发虚；
+改字号是重新排版，任何时刻都清晰。
+★★ **右对齐 / 居中都不许测文字宽度**：用 `translate: -100%` / `-50%`（相对**自身宽度**），
+换字号时宽度自己变、不会错位。也**不许用 `bottom` 锚底边** —— `left/top` 能插值，
+`bottom` 与 `top` 互换不能（所以 `next` 写的是 `top: calc(100% - …)` + `translate: 0 -100%`）。
+★ **跨多句的跳跃要瞬间归位**：`watch(index)` 里当 `|to - from| > 1` 时给 `.lyric-stage` 加
+`is-instant`（`transition: none`），下一帧去掉。不加的话拖进度条会让整屏歌词横穿画面。
+★ `prefers-reduced-motion` 下只留 `transition: opacity .2s`。
+
+**显示条件**（`LyricStage.vue` 的 `visible`）：
+`status !== 'idle' && (有歌词 || (这首歌没有 lrc 文件 && 有曲名))`。
+★★ **判据里必须有「这首歌没有词」这一支**（2026-10-15 修，用户 m01277「重新播放歌曲歌词会消失」）：
+旧判据只有 `lines.length > 0`，于是**任何一首没有 lrc 的歌一开播，整层被 `v-if` 掉**，
+画面上就是「歌词没了」。它出现得还特别隐蔽 —— 上一首播完 `ended` 自动 `load(index+1)`
+落到没有词的那首，用户以为自己「重新播放」的仍是同一首。现在没有词时改在正中显示
+**曲名 + 一行「暂无歌词」**（衬线斜体、同位置、字号小一档），层不消失。
+★ 判「没词」必须用 `lyricLoader(slug) === undefined`（有没有文件），
+**不能**用 `lines.length === 0` —— 后者在「刚切歌、lrc 还在读」的几十毫秒里也成立，
+那时跳「暂无歌词」等于说假话；真读失败时也宁可安静，而不是断言这首歌没词。
+★ **暂停时不隐藏** —— 一句歌词停在半空比整块消失更自然，也正好是「暂停」的语义。
+★ 整块 `aria-hidden="true"`：逐句更新对读屏是纯噪音。
+★ 整层带 `data-no-float`：播放时 hero 的字形会「浮水」（§5.18），歌词层自己在做换句动画，
+被逐字拆开会两边打架。
+
+**窄屏（≤767px，完整单列）**：`now` `max-width: min(46ch, 70vw)` / `clamp(1.05rem, 5vw, 1.45rem)`；
+上下两句 `min(30ch, 52vw)` / `clamp(0.9rem, 3.4vw, 1rem)`。
+★ 当前句收窄到 70vw 是因为**767px 以下音乐栏变成一颗 48px 的固定圆钮**（屏幕中右侧、垂直中心 ±24px），
+max-width 太宽时首行右端会顶到它。
+
+★ **没有歌词的曲子不建文件**：`lyricLoader()` 返回 `undefined`，此时歌词层**不消失**，
+而是在正中显示「曲名 + 暂无歌词」（见上面的显示条件）。
+典型例子是 `anime-openings-be-like`：网易云只给了 `[00:00.00-1] 作曲 : Allan Miguel Recto` 一行，
+**不要为了「有东西显示」造一个只有时间轴的假文件** —— 想让它有词就自己写
+`src/lyrics/anime-openings-be-like.lrc`（文件名 = `playlist.ts` 里的 slug），层会自动换成真歌词。
+★ 这首歌还特别容易撞上「歌词消失」：上一首播完 `ended` → 自动 `load(index + 1)` 接管，
+用户根本没点它。
+
+★ 页面加载顺序：`useLyrics()` 的 `watch(() => current.value?.slug, …, { immediate: true })` 在挂载时就发第一次加载，
+`onFrameTime()` 在 `onMounted` 挂上 —— 两者都在首帧之后，所以首屏那一瞬间歌词层可能是空的，
+播放真正开始时不会漏句（实测 22s / 68s / 26s 三个点位三句都在位）。
+
+---
+
+### 5.18 hero 字体「浮水」：逐字漂浮 + 真实节拍律动（2026-10-15）
+
+用户 m00528 原话：「正常情况下全页面的字体元素保持不动……当按下播放按键后（除了 bar），
+字体 dom 每一个字都变为浮动状态，像漂浮在水面上一样，每个字体都有一定的微微角度，
+大小也不一样（角度和大小不能太夸张），大小跟着节奏律动（这个不是随机律动，
+而是真正的跟着音乐节奏走）」。
+
+★★ **作用域只有 `section.hero`**，这是用户 m00787 收窄后的结论，也是性能上的唯一可行解：
+
+> 「文章部分不要加呀，只hero加就可以了，文章部分加了就是降低可读性呀」
+
+实测（把整页文本都拆成逐字 `span` 的那一版，`/about` 约 **420 个字**）：
+
+| 情况 | fps |
+| --- | --- |
+| 不浮（基线） | 200 |
+| 浮水，headful + 独显（GTX 1660 Ti） | **17–24** |
+| 浮水，headless（软件光栅） | **7** |
+| 只写一个 CSS 变量、不挂任何 transform | 85 |
+| 只挂 translate / 只挂 rotate / 只挂 scale | 26 / 43 / 32 |
+| 试过 `will-change` / `backface-visibility` / `contain` / `translateZ(0)` | 全都在 10–20，无改善 |
+| 换成纯 CSS `@keyframes`（零 JS 每帧） | 28 |
+
+⇒ **瓶颈是「几百个文字元素同时重新栅格化」，不是 JS**。hero 只有 8 个字（B 的 SVG + `log` 三个 + NEXT 四个），
+实测降到 95 fps（headless），且版式与「不浮」逐像素一致。
+
+**数据链**
+
+```
+player.ts  onFrameTime(cb)  ──┐
+                              ├─→ composables/floatText.ts（逐字包装 + 每帧写 3 个变量）
+player.ts  getAnalyser()   ──→ composables/beat.ts  readBeat(dt) → 0~1 节拍包络 ─┘
+```
+
+- `src/composables/beat.ts`：`readBeat(dtMs): number` / `resetBeat()`。与 `SoundLine.vue` 的节拍检测**同源机理**
+  （`BAND=64`、`LEVEL_REF=0.78`、`FLUX_WEIGHT=2`、快/慢包络 `ATTACK_MS=26 / RELEASE_MS=130 / SLOW_MS=260`、
+  `PUNCH_GAIN=2.2`、`tanh` 软限幅、输出再 `SMOOTH_MS=40` 平滑）。`seeded` 标志跳过首帧谱通量（否则 prev 全 0 会造出假鼓点）。
+- `src/composables/floatText.ts`：`startFloatText(router): () => void`（返回 `stopFloatText`）。**在 `App.vue` 的
+  `onMounted` 里调用**，`onBeforeUnmount` 里停。
+  - 只在 `status === 'playing'` 时才拆 DOM；暂停 / idle 会**还原原始 Text 节点**（不是留着 span 只去 transform）。
+  - 拆法：英文词包一层 `.fword`（`white-space: nowrap`，防止词中间断行）再逐字 `.fchar`；
+    CJK / 标点逐字；**超长 token（>24 字，如 170 字的裸链接）逐字且可断行**，避免撑出横向滚动条。
+  - 已有逐字元素的（`[data-letter]`：hero 的 `log` 的 `<i>`、NEXT 的 `<span>`、B 的 `<svg>`）**只"领养"不重拆**。
+  - 每帧只往 `.hero` 写 **3 个属性**：`--float-t`（相位）、`--float-beat`、`--float-k`（0→1 的强度缓动）；
+    每个字的相位/角度/幅度是拆的时候就写死的 `--float-i-r-s-a-j`（确定性哈希，不用随机数）。
+  - 强度进出都用 `1 - exp(-dt/τ)`（进 90ms、出 380ms），**出时长一点**才不会"啪"一下停住。
+
+**CSS（`src/style.css` 的浮水段）**
+
+```css
+.fchar, .fchar-el {
+  display: inline-block;
+  transform-origin: 50% 72%;
+  /* --_ft-phase 用 CSS 三角函数算，浏览器逐字求值；JS 只改 --float-t 一个变量 */
+  translate: 0 calc(sin(var(--_ft-phase)) * 2.4px * var(--float-k, 0));
+  rotate: calc(var(--float-r, 0deg) + sin(...) * 0.85deg * var(--float-k, 0));
+  scale: calc(var(--float-s, 1) + var(--float-beat, 0) * var(--float-a, 0));
+}
+```
+
+- ★★ **默认值必须写成 `var(--float-k, 0)`，绝不能在 `.fchar` 上声明同名变量** —— 那会盖掉从 `.hero` 继承下来的值。
+- ★ 用 `translate` / `rotate` / `scale` 三个**独立属性**，不动 `transform`（入场动画还在用 `transform`，会打架）。
+- ★ `transform-origin: 50% 72%`：字形视觉中心略低于盒中心（西文字母没有下伸），以盒中心转会看起来"绕着字的上半截转"。
+- 幅度（用户要求"不能太夸张"）：角度 ±1.7deg（大字形 ±0.9）、基准大小 ±3.5%（大字形 ±1.6%）、
+  节拍脉冲 3.4%（大字形 1.2%）、漂浮位移 ±2.4px。
+
+★★ **白缝（用户 m00846「字体后面会有白缝」）**：入场动画给 `.hero-log <i>` 和 NEXT 的 `<span>` 留了内联
+`filter: blur(0px)`。这种"看起来等于没写"的滤镜会让元素**单独栅格化**，之后再 translate/rotate/scale，
+字边缘会拖出 **1–2px 的竖直白缝**。修法：领养前 `clearNoopFilter()` —— 只在 `computed filter` 是
+`none` 或 `blur(0px)` 时 `removeProperty('filter')`（正在做模糊动画的元素不动）。
+★ 判断"缝"要看 3x 放大的裁剪图；`deviceScaleFactor: 1` 下 1px 的缝会被重采样糊掉，看起来像"抗锯齿"。
+
+**排除项**：`[data-no-float]` 祖先属性。目前挂在 `MusicBar.vue`（用户明确"除了 bar"）与 `LyricStage.vue`
+（歌词层本来就在动，再浮会读不清）。★ 排除列表跟着作用域一起收窄过：别再把 `MusicBall` / `SiteStats` /
+`SteamCard` / 「关于」正文挂上——它们不在 hero 里，永远走不到拆分逻辑。
+
+**版式不变**（硬指标，改这段后必须复测）：idle / playing / paused 三态的
+`.hero-initial` 位置、`h1` 的 rect、`main` 高度、`scrollHeight`、`scrollWidth` **全部相同**
+（1440×900 实测 `h1` 396,211 638×273、`mainH 1216`、`scrollH 1762`、`scrollW 1430` / `innerW 1440`）。
+
+**降级**：`prefersReducedMotion()` 为真时 `startFloatText()` **直接返回空函数**（不拆 DOM）。
+★ CSS 里那条 `@media (prefers-reduced-motion: reduce)` 只管 CSS 动画，**管不到 JS 写的 transform**，所以这个判断必须在 JS 里。
+
+---
+
+## 6. 陷阱清单（改动前扫一眼）
 ### 6.1 TS 6 弃用 `baseUrl`
 报 TS5101。删掉 `baseUrl`，`paths` 写 `"@/*": ["./src/*"]`。
 
@@ -1710,9 +1983,13 @@ const pages = ['/', '/articles', '/archive', '/about',
 
 ### 未完成
 
-- ⬜ **Git 仓库未初始化** —— CI/CD 配置已就绪但推不上去。
-  需要：`git init` → 建 GitHub 仓库 → `git remote add` → `git push`，
-  然后在仓库 **Settings → Pages → Source** 选 **GitHub Actions**。
+- ⬜ **站点还没上线** —— `https://zhaozhao347.github.io/kuroki_blog/` 现在返回 404
+  「There isn't a GitHub Pages site here」。要查：Actions 有没有跑过、仓库
+  **Settings → Pages → Source** 是否选了 **GitHub Actions**。
+  ★ git 那一步已完成：`master` 跟踪 `origin` = `github.com/zhaozhao347/kuroki_blog`，
+  基线时领先 `origin/master` 1 个提交（`adcecc8`），且 `master` 只有 2 个提交；
+  `git log --all` 里那串 `Agent host session …` 是宿主自动检查点
+  （挂在 `refs/agents/<session>/checkpoints/turn/N`），不在任何分支，别当项目历史。
 - ⬜ **边缘函数只差部署**（代码全写完，见 §5.16）：`cd workers/api` → `npx wrangler login` →
   `npx wrangler kv namespace create VIEWS`（把 id 填进 `wrangler.toml`）→ `npx wrangler secret put STEAM_API_KEY`
   → 把 17 位 steamID64 填进 `[vars] STEAM_ID` → `npx wrangler deploy` → 三个 `VITE_*_ENDPOINT` 写进 `.env.local`。

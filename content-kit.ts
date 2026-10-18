@@ -833,12 +833,21 @@ export function createCollectionPlugin<M extends BaseMeta>(spec: CollectionSpec<
 
     /* dev 下热更新：改任意 md / 换任意图片都重扫一遍，并让两个虚拟模块失效 */
     configureServer(server: ViteDevServer) {
-      server.watcher.add(path.resolve(root, spec.dir))
+      const watched = [path.resolve(root, spec.dir)]
       /* ★ 所有图片目录也要看：新加/换掉一张图后，assetRefs 必须重算，
          否则封面还是查不到 key（表现为「图放进去了但页面还是裂的」）。 */
-      for (const d of ASSET_DIRS) server.watcher.add(path.resolve(root, d))
+      for (const d of ASSET_DIRS) watched.push(path.resolve(root, d))
+      for (const d of watched) server.watcher.add(d)
       const onChange = (file: string) => {
         if (!file.endsWith('.md') && !IMAGE_EXT.includes(path.extname(file).toLowerCase())) return
+        /* ★★ 光判扩展名不够 —— 必须再判**目录**。
+           chokidar 在 dev 下把整个项目根都监视着（`watcher.add()` 只是额外加目录），
+           所以「往 docs/reports/ 里写一张汇报截图」也会命中上面那条扩展名判断，
+           于是每落盘一张图就 `full-reload` 一次（实测：截图脚本连拍时页面自己刷新，
+           loader 重播、播放状态与滚动位置全丢，看起来像"随机重载"的幽灵 bug）。
+           现在只有集合目录与图片目录里的文件才算数。 */
+        const abs = path.resolve(file)
+        if (!watched.some((d) => abs.startsWith(d + path.sep))) return
         refresh()
         const indexMod = server.moduleGraph.getModuleById(RESOLVED_INDEX)
         const mapMod = server.moduleGraph.getModuleById(RESOLVED_MAP)

@@ -36,6 +36,7 @@
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import type WebGLFluidEnhanced from 'webgl-fluid-enhanced'
 import { prefersReducedMotion } from '@/composables/motion'
+import { markWaterReady, whenBootGateOpen } from '@/composables/boot'
 
 /** 进场先撒几团颜料（库的 multipleSplats(n) 就是「恰好 n 团」）。
  *  ★ 0 = 一团都不撒。用户要求「鼠标没碰到水体时这里一点都不能动」——
@@ -188,13 +189,26 @@ function fluidConfig(weak: boolean): Parameters<WebGLFluidEnhanced['setConfig']>
 }
 
 onMounted(async () => {
-  if (prefersReducedMotion()) return
   const host = hostEl.value
-  if (!host) return
+  if (prefersReducedMotion() || !host) {
+    markWaterReady() // 没有水彩可等，别让 Loader 的预热窗口干耗到超时
+    return
+  }
 
-  /* 库走动态 import：这段代码只有进首页才会下载（见 vite 的分包）。 */
-  const { default: Fluid } = await import('webgl-fluid-enhanced')
-  if (disposed) return
+  /* 库走动态 import：这段代码只有进首页才会下载（见 vite 的分包）。
+     ★ 先启动下载，再等 Loader 的闸门 —— 下载不占主线程，真正贵的是下一句的
+       构造 + start()（实测一次阻塞 **633ms**，会正好砸在飞行/淡出上）。 */
+  const loading = import('webgl-fluid-enhanced')
+  await whenBootGateOpen()
+  if (disposed) {
+    markWaterReady()
+    return
+  }
+  const { default: Fluid } = await loading
+  if (disposed) {
+    markWaterReady()
+    return
+  }
 
   const inst = new Fluid(host)
 
@@ -228,6 +242,13 @@ onMounted(async () => {
       if (!document.hidden) fluid?.multipleSplats(AMBIENT_SPLATS)
     }, AMBIENT_SPLAT_MS)
   }
+
+  /* 告诉预热窗口「水彩已经能画了」：start() 里的着色器编译是同步完成的，
+     再等两帧就一定有东西可显示（第一帧提交、第二帧绘制）。 */
+  await new Promise<void>((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+  })
+  markWaterReady()
 })
 
 onBeforeUnmount(() => {

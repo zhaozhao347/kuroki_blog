@@ -162,6 +162,8 @@ src/
 ├─ posts.ts                # 文章门面层：视图只 import 它
 ├─ projects.ts             # 项目门面层：视图只 import 它
 ├─ pages.ts                # 页面门面层：视图只 import 它（「关于」的数据源）
+├─ playlist.ts             # 曲目清单（唯一真相源：网易云 id + 手写元数据 + 端点拼 URL）
+├─ lyrics/                 # 歌词 `*.lrc`（文件名 = playlist.ts 的 slug；懒加载，每首一个独立 chunk）
 ├─ assets/works/           # 通用作品图池（avif；项目 md 的 cover 可引用，只有被引用的才进 dist）
 ├─ components/
 │  ├─ AppLoader.vue        # 首屏载入动画（同一会话只播一次）
@@ -170,6 +172,9 @@ src/
 │  ├─ MarkdownRenderer.vue # markdown → 主题化 HTML（已做 XSS 加固）
 │  ├─ MusicBar.vue         # 音乐栏（走带键 + 细轨进度 + 曲目抽屉 + 断点续播；曲目来自网易云，见 DEVELOPMENT.md §5.6）
 │  ├─ MusicBall.vue        # 音乐球（非首页的右下浮动球 + 面板：环状进度 + 走带键 + 曲目列表；见 DEVELOPMENT.md §5.6）
+│  ├─ LyricStage.vue       # 歌词层（hero 上三句：上一句右上 / 当前句正中 / 下一句左下）
+│  ├─ SteamCard.vue        # 「关于」页右栏的 Steam「最近在玩」卡（没配端点就不渲染）
+│  ├─ SiteStats.vue        # 「关于」页侧栏的站点统计卡（文章 / 标签 / 总字数 / 浏览量）
 │  ├─ NextButton.vue       # 「N ext」翻页按钮（各页共用）
 │  ├─ SoundLine.vue        # 音频可视化横线（兼画 hero 渐变与线下填充）
 │  └─ WaterBody.vue        # hero 线以下的水体（鼠标交互；原 HeroStage 3D 舞台已删）
@@ -177,6 +182,10 @@ src/
 │  ├─ lofi.ts              # 音频可视化状态（波形来自 player 的 analyser）+ 渲染器工厂
 │  ├─ siteViews.ts         # 站点浏览量（PV）：POST 计一次 / GET 读总数（端点由 VITE_VIEWS_ENDPOINT 注入）
 │  ├─ steam.ts             # Steam「最近在玩」（workers/api/ 的 /steam；没配端点就不渲染那张卡）
+│  ├─ lyrics.ts            # 歌词同步：当前播放位置 → 上一句 / 当前句 / 下一句
+│  ├─ beat.ts              # 节拍包络（频谱能量 + 谱通量 → 0~1，供 hero 逐字律动用）
+│  ├─ floatText.ts         # hero 逐字「浮水」：拆字 / 还原 / 每帧只写 3 个 CSS 变量
+│  ├─ boot.ts              # 启动闸门：LoadApp 预热与水体初始化互相让步（都带超时兜底）
 │  ├─ tagFilter.ts         # 标签筛选（列表页 / 归档页共用）
 │  ├─ typewriter.ts        # 格言打字机（逐字出现 + 光标淡出；reduced-motion 直接给全文）
 │  └─ motion.ts            # 动效基础设施（Lenis 单例、reduced-motion、启动信号）

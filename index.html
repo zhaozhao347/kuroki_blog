@@ -7,6 +7,37 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="记录技术、想法与生活的个人博客" />
     <title>我的博客</title>
+    <!--
+      首屏底色（内联，必须在任何 JS / CSS 之前生效）。
+      ★ 为什么要有这一小段：入口 chunk 求值实测会阻塞主线程约 660ms
+        （`PerformanceObserver('longtask')`），这段时间里 style.css 还没到达，
+        浏览器先按默认白底绘制 ⇒ 用户看到的是「白屏 → 深蓝」的一次闪。
+        这里把设计系统的底色先画上，第一帧就是深蓝。
+      ★ 颜色必须与 `src/style.css` §3.1 完全一致（--brand / --bg-top），
+        改那里就要同步这里；style.css 到达后会接管同一个 `html::before`，
+        所以两份不会打架。
+    -->
+    <style>
+      html {
+        background-color: #0631bb;
+        color-scheme: dark;
+      }
+      html::before {
+        content: '';
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        /* 与 style.css 的 html::before 一致：z-index -1 才不会盖住 #app 里的内容 */
+        z-index: -1;
+        pointer-events: none;
+        background-image: linear-gradient(180deg, #195bcc, #0631bb);
+      }
+      body {
+        margin: 0;
+      }
+    </style>
   </head>
   <body>
     <div id="app"></div>

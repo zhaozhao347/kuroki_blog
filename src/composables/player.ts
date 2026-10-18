@@ -494,6 +494,39 @@ function emitFrame(): void {
   for (const cb of frameSubs) cb(r)
 }
 
+/* ---------------- 逐帧时间（秒，连续值）---------------- */
+
+/**
+ * 逐帧播放位置（**秒**，带小数）—— 给歌词这种「按时间点换内容」的消费方。
+ *
+ * ★ 为什么不直接看 `currentTime` ref：那个 ref 刻意**只精确到整秒**
+ *   （见 tick() 的注释，为了少触发重渲染）。挂在它上面，一句歌词最多会
+ *   **晚将近 1 秒**才换 —— 歌词对不上拍就是这个原因。
+ * ★ 为什么不用 `onFrameProgress`：那里给的是 0–1 比例，乘 `duration` 才能回到秒，
+ *   而 `duration` 是清单里手写 / 容器报告的近似值，乘出来会随播放逐渐漂移。
+ *   这里直接把 `audio.currentTime` 交出去，一个近似值都不掺。
+ * ★ 订阅时**立即回调一次**：挂载瞬间停在半句中间时也能拿到当前句。
+ * ★ 暂停时不发（值没变），拖动进度条会发（值变了）—— 与画面一致。
+ */
+const timeSubs = new Set<(seconds: number) => void>()
+let lastEmittedTime = -1
+
+export function onFrameTime(cb: (seconds: number) => void): () => void {
+  timeSubs.add(cb)
+  cb(audio?.currentTime ?? 0)
+  return () => {
+    timeSubs.delete(cb)
+  }
+}
+
+function emitTime(): void {
+  if (timeSubs.size === 0) return
+  const t = audio?.currentTime ?? 0
+  if (t === lastEmittedTime) return
+  lastEmittedTime = t
+  for (const cb of timeSubs) cb(t)
+}
+
 /* ==================== 启动：建图 + 元素事件 + 进度刷新 ==================== */
 
 /**
@@ -518,6 +551,7 @@ function tick(): void {
     }
   }
   emitFrame()
+  emitTime()
   rafId = requestAnimationFrame(tick)
 }
 
