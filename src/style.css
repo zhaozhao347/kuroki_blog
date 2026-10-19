@@ -826,8 +826,13 @@ code {
   rotate: calc(
     var(--float-r, 0deg) + sin(calc(var(--_ft-phase) * 0.72 + 1.1)) * 0.85deg * var(--float-k, 0)
   );
-  /* 节奏律动：--float-beat 是真实鼓点包络（0..1），乘各自的幅度 --float-a */
-  scale: calc(var(--float-s, 1) + var(--float-beat, 0) * var(--float-a, 0));
+  /* 节奏律动：--float-beat 是真实鼓点包络（0..1），乘各自的幅度 --float-a。
+     ★★ 这里是**减法**，不是加法（2026-10-19，用户「在 firefox 里 blog 大字有些模糊」）：
+     Firefox 对带 transform 的元素是「先按 1× 栅格化、再按 transform 缩放位图」，
+     一旦出现放大就是位图被拉大 —— 边缘发虚。所以 --float-s 只从 1 往下取，
+     律动也往下缩，`scale` 恒 ≤ 1：整条链路永远不做上采样。
+     观感不变（鼓点上字跟着「沉」一下，与浮起是同一个动势）。 */
+  scale: calc(var(--float-s, 1) - var(--float-beat, 0) * var(--float-a, 0));
 }
 
 /* 英文单词外壳：让断行只发生在词与词之间（逐字拆开后否则会在词中间断行） */

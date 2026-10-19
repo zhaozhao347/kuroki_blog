@@ -8,21 +8,30 @@
  *                   当前句（正中）
  *     下一句 ←──────────────────────── 左下
  *
- * ★★ 换句不用 `<Transition>`，而是**所有句子一次性挂在 DOM 里、按「离当前句的距离」
- *   给每句一个槽位**（`data-slot`），槽位决定 `left / top / translate / font-size /
- *   opacity`，这几个属性都带 transition ⇒ 换句时：
+ * ★★ 所有句子一次性挂在 DOM 里、按「离当前句的距离」给每句一个槽位（`data-slot`），
+ *   槽位只决定 **`translate` / `scale` / `opacity` / `color`**（全部是合成器属性），
+ *   换句时：
  *
  *     下下一句 ──→ 下一句 ──→ 当前句（从下游缓入到正中）
  *     当前句 ──→ 上一句 ──→ 上上一句（继续往右上浮走、淡出）
  *
  *   —— 也就是用户 m01134 要的「下一句缓入到现在的位置，现在的歌词缓入到上一句的位置，
  *   上上一句和下下一句的退出也按类似方向缓入缓出」。因为节点**不增不减**，浏览器会把
- *   位移/字号/透明度直接插值成一条连续的运动，不会出现「先出后进」的两段式闪断。
+ *   位移/缩放/透明度直接插值成一条连续的运动，不会出现「先出后进」的两段式闪断。
  *
- * ★ 为什么用 `left/top` + 百分比 `translate`，而不是 `scale` 缩放：
- *   ① 缩放会让文字在动画期间被位图放大，边缘发虚；改字号是重新排版，始终清晰。
- *   ② `translate: -100%` 是相对**自身宽度**的，右对齐 / 居中都无需测量文字宽度，
- *      交给浏览器算（换字号时宽度自己跟着变，不会错位）。
+ * ★★ 为什么位移/大小走 `translate` + `scale`，而不是 `left/top` + `font-size`
+ *   （2026-10-19 改，用户 m02813「歌词切换动画卡」）：那三个都是**布局属性** ——
+ *   每帧都要重新排版整行（含 `max-content` 宽度测量）再重新栅格化文字。
+ *   Chromium 在 200Hz 屏上勉强扛住，Firefox 上直接卡。现在整段过渡只剩合成器工作。
+ *   ⇒ 配套约定：**所有句子统一按当前句的字号排版**（`font-size` 固定在 `.lyric-line`），
+ *     上下两句用 `scale: var(--lyric-side)` 缩到 0.59×，永远不会放大 ⇒ 文字始终清晰
+ *     （Firefox 放大 transform 位图会发虚，见文件末尾的说明与现代代码同源的
+ *     `style.css`「文字浮水」段注释）。
+ *
+ * ★ 定位全靠 `translate`：`.lyric-line` 统一 `left/top: 0` + `transform-origin: 0 0`，
+ *   于是「缩放后的盒子左上角」就等于 translate 的坐标 —— 右对齐/居中的算式不必
+ *   跟着 scale 变，换槽位时也不会因为 transform-origin 变化而跳一下。
+ *   容器尺寸用 `cqw` / `cqh`（`.lyric-stage` 自己是尺寸容器）。
  *
  * ★ 与 `.hero-contain` / `<SoundLine />` / `<WaterBody />` 是**兄弟节点**
  *   （都挂在 `.hero` 下）。理由同 §4.2：变量定义在 `.hero-contain` 上的话，
@@ -214,21 +223,43 @@ function slotOf(i: number): Slot {
   z-index: 3;
   pointer-events: none;
 
+  /* ★★ 自己是尺寸容器：下面所有槽位都用 `cqw` / `cqh` 换算锚点
+     （`translate` 的百分比是**相对自身**的，取不到容器宽高，只有 cq 单位能同时表达
+     「容器的一半」和「自己的一半」）。inert 的内联尺寸已由 `inset: 0` 定死，所以安全。 */
+  container-type: size;
+
   /* ★ 当前句用衬线斜体（Cormorant Garamond italic）—— 用户 m01134 要的「优雅、特别」。
      整层共用同一个族：换句时字号会变、字族不会，否则斜体/无衬线在动画中途会「啪」地换形。 */
   font-family: var(--font-lyric);
   color: var(--text);
 
   /* 海平面正好在正中 —— 文字会压着波峰。这层软阴影负责把字从水色里托起来，
-     不用加半透明底板（底板会在波线两侧切出一条硬边）。 */
+     不用加加半透明底板（底板会在波线两侧切出一条硬边）。 */
   text-shadow: 0 2px 26px color-mix(in srgb, var(--bg) 55%, transparent);
 }
 
 /* ==================== 一句 ==================== */
-/* 基准尺寸 = 「当前句」的尺寸；其余槽位只改 font-size（不做 scale，见文件头）。
-   ★ `width: max-content` + `max-width`：短句不撑满、长句才折行。 */
+/* ★★ 所有句子**统一按当前句的字号排版**，上下两句靠 `scale` 缩到 0.59×（≈18.4px）。
+ *
+ *   为什么不像以前那样逐槽改 `font-size`：`font-size` / `left` / `top` 都是**布局属性**，
+ *   每一帧都要重新排版这一行（还要重算 `max-content` 宽度）再重新栅格化文字。
+ *   Chromium 在 200Hz 上勉强扛住，Firefox 直接卡 —— 用户 m02813「歌词切换动画卡」。
+ *   现在整段过渡只有 `translate` + `scale` + `opacity`，全部走合成器，两个浏览器都顺。
+ *
+ * ★★ 为什么 `scale` 恒 ≤ 1（不放大）：Firefox 对带 transform 的元素先按 1× 栅格化、
+ *   再按 transform 缩放位图 —— 放大就是「位图被拉大」（和 hero 大字模糊同源，
+ *   见 style.css「文字浮水」段的注释）。这里排版尺寸永远是最大的那份，
+ *   缩小只是重采样，永远清晰。
+ *
+ * ★ `width: max-content` + `max-width`：短句不撑满、长句才折行。
+ * ★ `transform-origin: 0 0`：缩放绕左上角 ⇒ **缩放不移动盒子的左上角**，
+ *   于是每个槽位都能用「缩放后的左上角该在哪」直接写 `translate`，不用去解
+ *   「绕中心缩 + 右对齐」的联立方程，换 `scale` 也不用同步改对齐公式。
+ */
 .lyric-line {
   position: absolute;
+  left: 0;
+  top: 0;
   margin: 0;
   width: max-content;
   max-width: min(46ch, 76vw);
@@ -242,18 +273,24 @@ function slotOf(i: number): Slot {
   letter-spacing: 0.005em;
   color: var(--text);
   overflow-wrap: break-word;
+  transform-origin: 0 0;
+  scale: var(--lyric-s, 1);
 
-  /* ★ 五个属性一起过渡 = 一条连续的运动。
+  /* ★ 只过渡合成器属性 = 一条连续的运动，且不触发布局。
      缓动曲线 `cubic-bezier(.4,.02,.18,1)`：起步慢、中段走得匀、末尾收住 ——
      像水面把字轻轻托上去。★ 别用 `(.22,.72,.18,1)` 那种「前段极快」的 ease-out：
-     实测跨句后 150ms 就走完 55%、字号从 16px 弹到 29px，观感是「跳」过去而不是「滑」过去。 */
+     实测跨句后 150ms 就走完 55%，观感是「跳」过去而不是「滑」过去。 */
   transition:
-    left 0.9s cubic-bezier(0.4, 0.02, 0.18, 1),
-    top 0.9s cubic-bezier(0.4, 0.02, 0.18, 1),
     translate 0.9s cubic-bezier(0.4, 0.02, 0.18, 1),
-    font-size 0.9s cubic-bezier(0.4, 0.02, 0.18, 1),
+    scale 0.9s cubic-bezier(0.4, 0.02, 0.18, 1),
     opacity 0.62s ease,
     color 0.9s ease;
+}
+
+/* 上下两句的缩放比。0.594 = 18.4px / 31px（1440 视口实测：`now` 30.96、两侧 18.43）。
+   ★ 窄屏另有一档（见末尾媒体查询）：19.5px 的正中对应 0.74 的两侧。 */
+.lyric-stage {
+  --lyric-side: 0.594;
 }
 
 /* ==================== 逐字（只有当前句） ==================== */
@@ -300,10 +337,10 @@ function slotOf(i: number): Slot {
  *   ★ 播放时波峰仍会漫过字脚（±40px 振幅），那正是「水在动」；不想让水碰字就
  *   回到 `50% + var(--band-half) + 1.25rem`，但那就不是正中了。 */
 .lyric-line[data-slot='now'] {
+  --lyric-s: 1;
   --lyric-lift: 0.32em;
-  left: 50%;
-  top: 50%;
-  translate: -50% calc(-50% - var(--lyric-lift));
+  /* 盒中心落在 (50cqw, 50cqh - lift)。`origin: 0 0` + `scale: 1` ⇒ 百分比就是盒的一半。 */
+  translate: calc(50cqw - 50%) calc(50cqh - 50% - var(--lyric-lift));
   text-align: center;
   opacity: 1;
   /* ★ 给逐字的一层紧凑暗光：播放时海平面会漫过字脚，这层“湿边”让水线在笔画
@@ -318,33 +355,29 @@ function slotOf(i: number): Slot {
 /* ==================== 上一句：右上 ==================== */
 /* 落进右上角标（⌐）的内侧。竖臂 `--corner-w` 实测 11~14px 宽，
    这里按实测定 `--site-margin + 2rem`：1440 视口下文字右边缘 1382、竖臂内沿 1402。
-   ★ `translate: -100%` 把盒子的右边缘贴到 `left` 那条线上（宽度由浏览器自己算）。 */
+   ★ 缩放后的右边缘要贴在这条线上，所以 x = 容器宽 − 边距 − **缩放后的自身宽**；
+     `origin: 0 0` 保证缩放不动左上角，写的坐标就是屏幕上看到的位置。 */
 .lyric-line[data-slot='prev'] {
-  left: calc(100% - var(--site-margin) - 2rem);
-  top: calc(var(--nav-h) + 1.75rem);
-  translate: -100% 0;
+  --lyric-s: var(--lyric-side);
+  translate:
+    calc(100cqw - var(--site-margin) - 2rem - var(--lyric-side) * 100%)
+    calc(var(--nav-h) + 1.75rem);
   text-align: right;
-  font-size: clamp(1.05rem, 1.28vw, 1.22rem);
-  line-height: 1.7;
-  letter-spacing: 0.01em;
   color: color-mix(in srgb, var(--text) 88%, transparent);
   opacity: 1;
 }
 
 /* ==================== 下一句：左下 ==================== */
 /* 落进左下角标（L）的内侧。角标的竖臂 + 横臂都在左下角，
-   所以 `left` 让到 `--site-margin + 2.25rem`（1440 实测文字左边缘 52、竖臂右沿 27.5），
-   底边让到 `--site-margin + 2.5rem`（文字下边缘 844、横臂上沿 888）。
-   ★ 用 `top: calc(100% - X)` + `translate: -100%` 锚底边，别用 `bottom` ——
-     `left/top` 是能插值的，`bottom` ↔ `top` 互换不能。 */
+   所以左边缘让到 `--site-margin + 2.25rem`（1440 实测文字左边缘 52、竖臂右沿 27.5），
+   下边缘让到 `--site-margin + 2.5rem`（文字下边缘 844、横臂上沿 888）。
+   ★ 锚底边：y = 容器高 − 边距 − **缩放后的自身高**（同样靠 `origin: 0 0`）。 */
 .lyric-line[data-slot='next'] {
-  left: calc(var(--site-margin) + 2.25rem);
-  top: calc(100% - var(--site-margin) - 2.5rem);
-  translate: 0 -100%;
+  --lyric-s: var(--lyric-side);
+  translate:
+    calc(var(--site-margin) + 2.25rem)
+    calc(100cqh - var(--site-margin) - 2.5rem - var(--lyric-side) * 100%);
   text-align: left;
-  font-size: clamp(1.05rem, 1.28vw, 1.22rem);
-  line-height: 1.7;
-  letter-spacing: 0.01em;
   color: color-mix(in srgb, var(--text) 88%, transparent);
   opacity: 1;
 }
@@ -353,22 +386,20 @@ function slotOf(i: number): Slot {
 /* 上上一句：继续往右上浮、淡出（与「上一句」同一方向，只再远一点、再小一点）。
    下下一句：停在更下方的水外，等着被「下一句」那一步拉上来。 */
 .lyric-line[data-slot='above'] {
-  left: calc(100% - var(--site-margin) - 1.5rem);
-  top: calc(var(--nav-h) + 1.75rem - 1.1rem);
-  translate: -100% -100%;
+  --lyric-s: 0.5;
+  translate:
+    calc(100cqw - var(--site-margin) - 1.5rem - 50%)
+    calc(var(--nav-h) + 0.65rem);
   text-align: right;
-  font-size: clamp(0.95rem, 1.06vw, 1.04rem);
-  line-height: 1.7;
   opacity: 0;
 }
 
 .lyric-line[data-slot='below'] {
-  left: calc(var(--site-margin) + 1.75rem);
-  top: calc(100% - var(--site-margin) - 2.5rem + 1.1rem);
-  translate: 0 0;
+  --lyric-s: 0.5;
+  translate:
+    calc(var(--site-margin) + 1.75rem)
+    calc(100cqh - var(--site-margin) - 2.5rem + 1.1rem - 50%);
   text-align: left;
-  font-size: clamp(0.95rem, 1.06vw, 1.04rem);
-  line-height: 1.7;
   opacity: 0;
 }
 
@@ -414,23 +445,19 @@ function slotOf(i: number): Slot {
 
 /* ==================== 窄屏 ==================== */
 @media (max-width: 767px) {
-  /* ★ 窄屏上 B 与 NEXT 把两角挤得很满，三句只能往内收：
-     上下两句收到 52vw（够放一句主歌，再窄就断成两截），
-     当前句收 **60vw** —— 767px 以下音乐栏会变成一颗 48px 的固定圆钮
-     （`right: --site-margin`、垂直中心 ±24px）；当前句正中就在这条横线上，
-     70vw 时右端（390 屏实测 305）离圆钮左沿只剩 12px，换一句更长的就贴上了。
-     60vw 在 390 屏是 234px（文字盒 78~312），圆钮左沿 317 ⇒ 留 5px 余量。 */
+  /* ★ 窄屏上 B 与 NEXT 把两角挤得很满，三句只能往内收：当前句收 **60vw** ——
+     767px 以下音乐栏会变成一颗 48px 的固定圆钮（`right: --site-margin`、
+     垂直中心 ±24px）；当前句正中就在这条横线上，70vw 时右端（390 屏实测 305）
+     离圆钮左沿只剩 12px，换一句更长的就贴上了。
+     60vw 在 390 屏是 234px（文字盒 78~312），圆钮左沿 317 ⇒ 留 5px 余量。
+     ★ 上下两句不再单独收窄：它们只是当前句的 0.74 倍，视觉宽度大约是 44vw。 */
+  .lyric-stage {
+    --lyric-side: 0.74;
+  }
+
   .lyric-line {
     max-width: min(46ch, 60vw);
     font-size: clamp(1.05rem, 5vw, 1.45rem);
-  }
-
-  .lyric-line[data-slot='prev'],
-  .lyric-line[data-slot='next'],
-  .lyric-line[data-slot='above'],
-  .lyric-line[data-slot='below'] {
-    max-width: min(30ch, 52vw);
-    font-size: clamp(0.9rem, 3.4vw, 1rem);
   }
 
   .lyric-none {

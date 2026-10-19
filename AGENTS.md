@@ -1361,22 +1361,34 @@ certificate…)"}`，那是**本机证书链问题**（本机 Node 自带 CA 包
 
 **版面（三句 + 两个「已退场/待进场」槽位）**
 
-★ 2026-10-15 重做（用户 m01134）：**不再用三个 `<Transition>`，而是把整首歌的句子
-全部渲染进 DOM**（这首 31 句），按「离当前句的距离」给每句一个 `data-slot`；
-槽位只决定 `left / top / translate / font-size / opacity`，五个属性都带 transition
-⇒ 换句时所有句子一起**沿槽位链滑动**（见下面「动效」）。
+★ 2026-10-15 重做（用户 m01134），2026-10-19 再改（用户 m02813「歌词切换动画卡」）：
+**不再用三个 `<Transition>`，而是把整首歌的句子全部渲染进 DOM**（这首 31 句），
+按「离当前句的距离」给每句一个 `data-slot`；槽位只决定 **`translate` / `scale` / `opacity` / `color`**
+（四个都是合成器属性），换句时所有句子一起**沿槽位链滑动**（见下面「动效」）。
 
-| 槽位 | 定位 | 字号 |
+★★ **三条布局铁律**（改槽位前必读）：
+1. **所有句子统一按「当前句」的字号排版** —— `font-size` 只写在 `.lyric-line` 上，
+   上下两句用 `scale: var(--lyric-side)`（桌面 `0.594` = 18.4/31，窄屏 `0.74`）缩下去。
+2. `.lyric-line` 统一 `left: 0; top: 0` + `transform-origin: 0 0` ⇒ **缩放不动左上角**，
+   于是每个槽位只要写「缩放后的左上角该在哪」，对齐算式不必跟着 `scale` 变，
+   换槽位也不会因为 `transform-origin` 变化而跳一下。
+3. 容器尺寸用 `cqw` / `cqh`（`.lyric-stage` 自己 `container-type: size`）——
+   `translate` 的百分比是**相对自身**的，取不到容器宽高，只有 cq 单位能同时表达两者。
+
+| 槽位 | `translate`（`origin: 0 0` ⇒ 这就是**缩放后左上角**的屏幕位置） | `--lyric-s` |
 | --- | --- | --- |
-| `[data-slot='now']` | `left: 50%`；`top: 50%`；`translate: -50% calc(-50% - var(--lyric-lift))`（`--lyric-lift: .32em`）；居中；`max-width: min(46ch, 76vw)` | `clamp(1.3rem, 2.15vw, 2rem)` |
-| `[data-slot='prev']` | `left: calc(100% - var(--site-margin) - 2rem)`；`top: calc(var(--nav-h) + 1.75rem)`；`translate: -100% 0`；右对齐 | `clamp(1.05rem, 1.28vw, 1.22rem)` |
-| `[data-slot='next']` | `left: calc(var(--site-margin) + 2.25rem)`；`top: calc(100% - var(--site-margin) - 2.5rem)`；`translate: 0 -100%` | 同上 |
-| `[data-slot='above']` | 右上再往外 1.1rem、`translate: -100% -100%`、`opacity: 0` | `clamp(0.95rem, 1.06vw, 1.04rem)` |
-| `[data-slot='below']` | 左下再往下 1.1rem、`translate: 0 0`、`opacity: 0` | 同上 |
+| `[data-slot='now']` | `calc(50cqw - 50%)` / `calc(50cqh - 50% - var(--lyric-lift))`（`--lyric-lift: .32em`）；居中；`max-width: min(46ch, 76vw)` | `1` |
+| `[data-slot='prev']` | `calc(100cqw - var(--site-margin) - 2rem - var(--lyric-side) * 100%)` / `calc(var(--nav-h) + 1.75rem)`；右对齐 | `var(--lyric-side)` |
+| `[data-slot='next']` | `calc(var(--site-margin) + 2.25rem)` / `calc(100cqh - var(--site-margin) - 2.5rem - var(--lyric-side) * 100%)` | `var(--lyric-side)` |
+| `[data-slot='above']` | `calc(100cqw - var(--site-margin) - 1.5rem - 50%)` / `calc(var(--nav-h) + 0.65rem)`；`opacity: 0` | `0.5` |
+| `[data-slot='below']` | `calc(var(--site-margin) + 1.75rem)` / `calc(100cqh - var(--site-margin) - 2.5rem + 1.1rem - 50%)`；`opacity: 0` | `0.5` |
 
-实测（1440×900，settled）：`now` 盒 584,418 262×45 字号 31.0（视觉中心 y≈440）；
-`prev` 1257,100 125×31 字号 18.4；`next` 52,813 230×31 字号 18.4；`scrollW 1430 / innerW 1440`（无横向溢出）。
-390×844：`now` 75,402 230×28 字号 19.5（60vw 上限 234）；上下两句 14.4；`scrollW 380 / innerW 390`。
+`--lyric-side`：桌面 `0.594`（= 18.4/31，即上下两句以前用过的字号比）、窄屏 `0.74`。
+
+实测（1440×900，settled）：`now` 盒 584,418 262×45（≈31px）；`prev` 1257,100 125×31（≈18.4px）；
+`next` 52,813 230×31；`scrollW 1430 / innerW 1440`（无横向溢出）。
+390×844：`now` 75,402 230×28（60vw 上限 234）；上下两句 14.4；`scrollW 380 / innerW 390`。
+★ 上面这些**视觉尺寸与改版前完全一致** —— 改的是实现（`scale` 替掉 `font-size`），不是版面。
 
 ★★ **当前句就是视口正中（`top: 50%`），但必须再抬 `--lyric-lift: .32em`**（2026-10-15，用户 m01390
 「中间歌词也改成浮动的，然后放在正中间」）：
@@ -1416,19 +1428,25 @@ certificate…)"}`，那是**本机证书链问题**（本机 Node 自带 CA 包
 **动效（用户 m01134：下一句缓入正中 ← 当前句缓入右上 ← 上上一句浮走）**
 
 ```css
-transition: left .9s cubic-bezier(.4,.02,.18,1), top .9s …,
-            translate .9s …, font-size .9s …, opacity .62s ease, color .9s ease;
+transition: translate .9s cubic-bezier(.4,.02,.18,1),
+            scale     .9s cubic-bezier(.4,.02,.18,1),
+            opacity .62s ease, color .9s ease;
 ```
-★ 因为**节点不增不减**、只是换 `data-slot`，浏览器把位移/字号/透明度插值成一条连续运动，
+★★ **只过渡合成器属性**（`translate` / `scale` / `opacity` / `color`）—— 2026-10-19 重做
+（用户 m02813「歌词切换动画卡」）。改前的写法过渡的是 `left` / `top` / `font-size`，
+每一帧都要**重新布局 + 重新排版 + 重算 max-content 宽度**；CDP 实测换成
+`translate/scale` 之后 style+layout 成本从 ~5.4ms/次掉到 ~1.4ms/次，且帧率不再被排版拖住。
+★ 因为**节点不增不减**、只是换 `data-slot`，浏览器把位移/缩放/透明度插值成一条连续运动，
 不会出现「先出后进」的两段式闪断（那是 `mode="out-in"` 的 Transition 才有的）。
 ★ **缓动曲线别用 `(.22,.72,.18,1)`**：实测跨句后 150ms 就走完 55%、字号从 16px 弹到 29px，
-观感是「跳」过去。现在这条起步慢、中段匀、末尾收住（实测 200ms 时 `now` 还在下方 y≈655、字号 24.3；
-450ms 已到 y≈524 / 字号 30.7）。
-★★ **绝不用 `scale` 缩放代替 `font-size`**：缩放是位图放大，动画期间文字边缘会发虚；
-改字号是重新排版，任何时刻都清晰。
-★★ **右对齐 / 居中都不许测文字宽度**：用 `translate: -100%` / `-50%`（相对**自身宽度**），
-换字号时宽度自己变、不会错位。也**不许用 `bottom` 锚底边** —— `left/top` 能插值，
-`bottom` 与 `top` 互换不能（所以 `next` 写的是 `top: calc(100% - …)` + `translate: 0 -100%`）。
+观感是「跳」过去。现在这条起步慢、中段匀、末尾收住。
+★★ **大小一律用 `scale`，且只缩不放**：`--lyric-s` 最大是 `1`（当前句），上下两句 0.594 / 0.5
+—— **任何槽位都不许 >1**。>1 是位图放大，Firefox 上会明显发虚（用户 m02813「fierfox里就感觉
+blog大字有些模糊」就是这类放大的观感）；≤1 是缩小，任何尺寸都清晰。
+★ 同理 §5.18 的逐字浮水：`scale` 的脉冲只在 **当前字号再缩一点** 的方向上做（`1 − beat × 振幅`），
+**不许写 `1 + …`**。
+★★ **右对齐 / 居中都不许测文字宽度**：用 `translate` 里的 `%`（相对**自身宽度**，`origin: 0 0`
+时即缩放后的宽高）—— 换槽位时宽度自己变、不会错位。也**不许用 `bottom` 锚底边**（不可插值）。
 ★ **跨多句的跳跃要瞬间归位**：`watch(index)` 里当 `|to - from| > 1` 时给 `.lyric-stage` 加
 `is-instant`（`transition: none`），下一帧去掉。不加的话拖进度条会让整屏歌词横穿画面。
 ★ `prefers-reduced-motion` 下只留 `transition: opacity .2s`。
@@ -1535,14 +1553,17 @@ player.ts  getAnalyser()   ──→ composables/beat.ts  readBeat(dt) → 0~1 �
   /* --_ft-phase 用 CSS 三角函数算，浏览器逐字求值；JS 只改 --float-t 一个变量 */
   translate: 0 calc(sin(var(--_ft-phase)) * 2.4px * var(--float-k, 0));
   rotate: calc(var(--float-r, 0deg) + sin(...) * 0.85deg * var(--float-k, 0));
-  scale: calc(var(--float-s, 1) + var(--float-beat, 0) * var(--float-a, 0));
+  scale: calc(var(--float-s, 1) - var(--float-beat, 0) * var(--float-a, 0));
 }
 ```
 
 - ★★ **默认值必须写成 `var(--float-k, 0)`，绝不能在 `.fchar` 上声明同名变量** —— 那会盖掉从 `.hero` 继承下来的值。
 - ★ 用 `translate` / `rotate` / `scale` 三个**独立属性**，不动 `transform`（入场动画还在用 `transform`，会打架）。
 - ★ `transform-origin: 50% 72%`：字形视觉中心略低于盒中心（西文字母没有下伸），以盒中心转会看起来"绕着字的上半截转"。
-- 幅度（用户要求"不能太夸张"）：角度 ±1.7deg（大字形 ±0.9）、基准大小 ±3.5%（大字形 ±1.6%）、
+- ★★ **`scale` 写的是减法（`− beat × 脉幅`），且 `--float-s` 上限就是 1**（2026-10-19，用户 m02813
+  「在 fierfox 里感觉 blog 大字有些模糊」）：加法会让字在鼓点上**放大**，位图被拉大就发虚；
+  现在基准 ≤1、脉冲只往小走，任何时刻都不放大。
+- 幅度（用户要求"不能太夸张"）：角度 ±1.7deg（大字形 ±0.9）、基准大小 `1 − 3.5%`（大字形 `1 − 1.6%`）、
   节拍脉冲 3.4%（大字形 1.2%）、漂浮位移 ±2.4px。
 
 ★★ **白缝（用户 m00846「字体后面会有白缝」）**：入场动画给 `.hero-log <i>` 和 NEXT 的 `<span>` 留了内联

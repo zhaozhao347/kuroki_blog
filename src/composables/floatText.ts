@@ -115,6 +115,8 @@ interface AdoptedRecord {
 let host: HTMLElement | null = null
 let records: SplitRecord[] = []
 let adopted: AdoptedRecord[] = []
+/** walk() 拆出来的逐字元素（只为了每帧给它们写信，见 targets()） */
+let split: HTMLElement[] = []
 let raf = 0
 let lastNow = 0
 let clock = 0
@@ -141,10 +143,19 @@ interface GlyphIdentity {
 /**
  * 算出一个字的身份。
  *
- * ★ 幅度是克制的：角度 ±1.7°、基础缩放 ±3.5%、律动最多 +6.2%。
+ * ★ 幅度是克制的：角度 ±1.7°、基础缩放 0.965~1.0、律动最多再缩 6.2%。
  *   用户明确「角度和大小不能太夸张」—— 目标读感是「每个字不一样、在呼吸」，
  *   而不是让排版散架。大字形（B / log / NEXT，字号 200~417px）反而要更小：
  *   417px 高的 B 涨 6% 会晃得头晕。
+ *
+ * ★★ 缩放区间**必须落在 (0, 1]**（2026-10-19，用户「在 firefox 里 blog 大字有些模糊」）：
+ *   Firefox 会把带 transform 的元素先按 1× 栅格化，再按 transform 缩放那张位图。
+ *   只要出现过放大（旧值是 `1 ± 3.5%`，B 最坏 1.028 ⇒ 417px 的字放大 12px），
+ *   Firefox 里就是「位图被拉大」—— 边缘发虚、笔画发胖。
+ *   ⇒ 基准值改成只**往下**取（`1 - r * 幅度`），律动也用减法（见 style.css），
+ *     整条链路永远不做上采样，Chromium 与 Firefox 都清晰。
+ *   ★ 大字形（svg 的 B）更狠一档：`scale` 恒 1、`pulse` 恒 0，**完全不缩放**，
+ *     只保留旋转与位移 —— 它是全站最大的字，任何比例缩放都会先被看见。
  */
 function glyphIdentity(i: number, big: boolean): GlyphIdentity {
   const r1 = rnd(i * 3.17)
@@ -154,8 +165,8 @@ function glyphIdentity(i: number, big: boolean): GlyphIdentity {
 
   return {
     rot: (r1 * 2 - 1) * (big ? 0.9 : 1.7),
-    scale: 1 + (r2 * 2 - 1) * (big ? 0.016 : 0.035),
-    pulse: (0.35 + 0.65 * r3) * (big ? 0.022 : 0.062),
+    scale: big ? 1 : 1 - r2 * 0.035,
+    pulse: big ? 0 : (0.35 + 0.65 * r3) * 0.062,
     jitter: r4 * 0.9,
   }
 }
@@ -206,6 +217,7 @@ function makeGlyph(ch: string, index: number): HTMLSpanElement {
   s.className = GLYPH
   s.textContent = ch
   tagGlyph(s, index, false)
+  split.push(s)
   return s
 }
 
@@ -384,19 +396,54 @@ function restore(): void {
   records = []
   for (const a of adopted) untagGlyph(a.el)
   adopted = []
+  split = []
 }
 
 /* ==================== 每帧驱动 ==================== */
 
-function writeVar(name: string, value: string): void {
-  host?.style.setProperty(name, value)
+/**
+ * ★★ 每帧要写变量的**目标集合**：只有真正用到 `--float-*` 的元素。
+ *
+ * 历史（2026-10-18 卡顿排查）：这些变量一开始是写在 `.hero` 上的 —— 自定义属性
+ * **会被继承**，于是每改一次值，浏览器就要把整棵 hero 子树（31 行歌词 + 音乐栏
+ * + 角标 + 抽屉…）重算一遍样式。CDP 实测播放中：**RecalcStyleDuration 613 ms/s、
+ * LayoutDuration 88 ms/s、TaskDuration 911 ms/s**（主线程 91% 被吃掉），
+ * 而字形本身只有 8 个 + 当前句 20~30 个。
+ *
+ * 现在只写两类目标：
+ *   ① hero 里那些真正带 `[data-letter]` 的字元素（B 的 svg / `log` 的 `<i>` /
+ *      NEXT 的 `<span>`，共 8 个）与 walk() 拆出来的字；
+ *   ② `.lyric-stage`（当前句的逐字 span 从它继承；它自己只有 31 行 `<p>`）。
+ * 每个目标都**没有后代**在用这些变量（或后代很少），所以重算范围就是这几个元素。
+ */
+function targets(): HTMLElement[] {
+  const out: HTMLElement[] = []
+  for (const a of adopted) out.push(a.el)
+  for (const el of split) out.push(el)
+  const stage = document.querySelector<HTMLElement>('.lyric-stage')
+  if (stage) out.push(stage)
+  return out
 }
 
 function ensureLoop(): void {
   if (raf || !host) return
   lastNow = 0
+  nextWrite = 0
   raf = requestAnimationFrame(frame)
 }
+
+/**
+ * ★★ 变量按 60Hz 写，不是每帧写（2026-10-19，用户「可以优化一下帧数吗」）。
+ *
+ *   在 200Hz 屏上实测：写 `--float-*` 会让目标元素（8 个 hero 字 + `.lyric-stage`
+ *   及其 28 个逐字 span）每秒重算样式 267 次，光 `RecalcStyleDuration` 就 **443ms/s**
+ *   （每次 1.2~1.7ms），是播放态最大的主线程开销。
+ *   而文字摆动的可见频率只有 ~1.6Hz（`sin(--float-t * 1.55)`），
+ *   120ms 内位移不到 1px —— 60Hz 与 200Hz 的差别肉眼不可见。
+ *   ⇒ 写入节流到 16ms 一档，重算次数按屏幕刷新率比例下降（200Hz 时降到 1/3.3）。
+ */
+const WRITE_MS = 16
+let nextWrite = 0
 
 function frame(now: number): void {
   raf = 0
@@ -412,9 +459,18 @@ function frame(now: number): void {
 
   const beat = enabled ? readBeat(dt) : 0
 
-  writeVar('--float-t', clock.toFixed(3))
-  writeVar('--float-beat', beat.toFixed(4))
-  writeVar('--float-k', intensity.toFixed(4))
+  /* 每帧只写 3 个值，但写进 targets() 那几处小目标（见上面的注释），且节流到 60Hz */
+  if (now >= nextWrite) {
+    nextWrite = now + WRITE_MS
+    const t = clock.toFixed(3)
+    const b = beat.toFixed(4)
+    const k = intensity.toFixed(4)
+    for (const el of targets()) {
+      el.style.setProperty('--float-t', t)
+      el.style.setProperty('--float-beat', b)
+      el.style.setProperty('--float-k', k)
+    }
+  }
 
   if (!enabled && intensity === 0) {
     teardown()
@@ -425,11 +481,14 @@ function frame(now: number): void {
 
 /** 淡出结束：把 DOM 还原成普通文本，收工 */
 function teardown(): void {
+  /* 先把当前这批目标归零（下一帧就没有元素带值了），再还原 DOM */
+  for (const el of targets()) {
+    el.style.setProperty('--float-t', '0')
+    el.style.setProperty('--float-beat', '0')
+    el.style.setProperty('--float-k', '0')
+  }
   restore()
   host?.removeAttribute('data-float')
-  writeVar('--float-t', '0')
-  writeVar('--float-beat', '0')
-  writeVar('--float-k', '0')
   lastNow = 0
 }
 
