@@ -95,7 +95,7 @@ const rendered = computed(() =>
         for (const ch of chars) pieces.push({ kind: 'char', text: ch, ...take() })
       }
     }
-    return { t: line.t, pieces }
+    return { t: line.t, text: line.text, pieces }
   }),
 )
 
@@ -172,18 +172,27 @@ function slotOf(i: number): Slot {
   >
     <!-- 逐字渲染：每个 `span.fchar` 都带一套浮水身份变量（见 script 里 `rendered` 的注释），
          播放中由 `.hero[data-float='on']` 那段 CSS 驱动（§5.18）。 -->
+    <!-- ★★ 只有「当前句」逐字浮动，上一句 / 下一句是**纯文本、完全静止**（用户 m02634
+         「上一句下一句不要用浮动，固定住」）。
+         · 静止的句子不进 `.fchar` ⇒ 保留 kerning / 连字，排版是字体原本的样子；
+         · 槽位切到 `now` 的那一帧才换成逐字 span —— 过渡挂在 `<p>` 上，
+           内部结构变化不会重启动画；
+         · 每帧变化的仍然只有 hero 上那三个共享变量，所以「只有一句在动」也更省。 -->
     <p v-for="(line, i) in rendered" :key="line.t" class="lyric-line" :data-slot="slotOf(i)">
-      <template v-for="piece in line.pieces" :key="piece.key">
-        <span v-if="piece.kind === 'word'" class="fword">
-          <span v-for="glyph in piece.chars" :key="glyph.key" class="fchar" :style="glyph.style">{{
-            glyph.text
+      <template v-if="slotOf(i) === 'now'">
+        <template v-for="piece in line.pieces" :key="piece.key">
+          <span v-if="piece.kind === 'word'" class="fword">
+            <span v-for="glyph in piece.chars" :key="glyph.key" class="fchar" :style="glyph.style">{{
+              glyph.text
+            }}</span>
+          </span>
+          <span v-else-if="piece.kind === 'char'" class="fchar" :style="piece.style">{{
+            piece.text
           }}</span>
-        </span>
-        <span v-else-if="piece.kind === 'char'" class="fchar" :style="piece.style">{{
-          piece.text
-        }}</span>
-        <template v-else>{{ piece.text }}</template>
+          <template v-else>{{ piece.text }}</template>
+        </template>
       </template>
+      <template v-else>{{ line.text }}</template>
     </p>
 
     <!-- 没有歌词的曲目（网易云只给了作曲人行的那首）：层不消失，改为报「这里没有词」。
@@ -247,12 +256,13 @@ function slotOf(i: number): Slot {
     color 0.9s ease;
 }
 
-/* ==================== 逐字（浮水） ==================== */
-/* 逐字 span 在**任何状态**下都是内联块。只在播放时变成内联块的话，点播放那一帧
-   字宽会变（丢掉 kerning）、贴边的长句还可能重新折行 ⇒ 「刚开始浮」像整句跳一下。
-   恒定的内联块就没有这个时刻。
+/* ==================== 逐字（只有当前句） ==================== */
+/* 只有 `[data-slot='now']` 里才有 `.fchar`（见 template）；上下两句是纯文本。
+   ★ 但 `.fchar` 仍然**常驻**内联块：切开之后每个字各自成盒，才能各自绕自己的
+     `transform-origin` 转/缩；而且它只在「当前句」存在，所以句子一离开 now 就
+     自动回到纯文本排版（kerning/连字恢复），不需要额外开关。
    ★ 变换（translate/rotate/scale）本身只挂在 `.hero[data-float='on'] .fchar` 上
-     （见 style.css 的「文字浮水」段），所以不播放时这些 span 是**静止**的纯排版。 */
+     （见 style.css 的「文字浮水」段），所以暂停时这些 span 是**静止**的纯排版。 */
 .lyric-line .fchar {
   display: inline-block;
 }
