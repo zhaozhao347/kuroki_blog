@@ -77,7 +77,7 @@ const BUDGET = 240
  * ★★ 给 **长 URL / 长标识符** 留的活口：`nowrap` 的内联块不能断行，
  *   超过这个长度就按**单字**拆，于是又能随时断行。
  */
-const LONG_ATOM = 24
+export const LONG_ATOM = 24
 
 /** 天然不拆的标签（代码块、表单、图形） */
 const SKIP_TAGS = new Set([
@@ -130,31 +130,67 @@ function rnd(seed: number): number {
   return v - Math.floor(v)
 }
 
+/** 一个字的「身份」数值（确定性：同一个序号永远同一套） */
+interface GlyphIdentity {
+  rot: number
+  scale: number
+  pulse: number
+  jitter: number
+}
+
 /**
- * 给一个字写「身份」：序号 + 基础角 + 基础缩放 + 律动幅度 + 相位抖动。
+ * 算出一个字的身份。
  *
- * ★ 这几个值只写一次（拆分时），之后每帧变的是**共享的** `--float-t` / `--float-beat`。
  * ★ 幅度是克制的：角度 ±1.7°、基础缩放 ±3.5%、律动最多 +6.2%。
  *   用户明确「角度和大小不能太夸张」—— 目标读感是「每个字不一样、在呼吸」，
  *   而不是让排版散架。大字形（B / log / NEXT，字号 200~417px）反而要更小：
  *   417px 高的 B 涨 6% 会晃得头晕。
  */
-function tagGlyph(el: HTMLElement, i: number, big: boolean): void {
+function glyphIdentity(i: number, big: boolean): GlyphIdentity {
   const r1 = rnd(i * 3.17)
   const r2 = rnd(i * 5.71 + 1.31)
   const r3 = rnd(i * 7.93 + 2.67)
   const r4 = rnd(i * 11.37 + 4.19)
 
-  const rot = (r1 * 2 - 1) * (big ? 0.9 : 1.7)
-  const scale = 1 + (r2 * 2 - 1) * (big ? 0.016 : 0.035)
-  const pulse = (0.35 + 0.65 * r3) * (big ? 0.022 : 0.062)
-  const jitter = r4 * 0.9
+  return {
+    rot: (r1 * 2 - 1) * (big ? 0.9 : 1.7),
+    scale: 1 + (r2 * 2 - 1) * (big ? 0.016 : 0.035),
+    pulse: (0.35 + 0.65 * r3) * (big ? 0.022 : 0.062),
+    jitter: r4 * 0.9,
+  }
+}
 
+/**
+ * 给一个字写「身份」：序号 + 基础角 + 基础缩放 + 律动幅度 + 相位抖动。
+ *
+ * ★ 这几个值只写一次（拆分时），之后每帧变的是**共享的** `--float-t` / `--float-beat`。
+ */
+function tagGlyph(el: HTMLElement, i: number, big: boolean): void {
+  const g = glyphIdentity(i, big)
   el.style.setProperty('--float-i', String(i))
-  el.style.setProperty('--float-r', `${rot.toFixed(2)}deg`)
-  el.style.setProperty('--float-s', scale.toFixed(4))
-  el.style.setProperty('--float-a', pulse.toFixed(4))
-  el.style.setProperty('--float-j', jitter.toFixed(3))
+  el.style.setProperty('--float-r', `${g.rot.toFixed(2)}deg`)
+  el.style.setProperty('--float-s', g.scale.toFixed(4))
+  el.style.setProperty('--float-a', g.pulse.toFixed(4))
+  el.style.setProperty('--float-j', g.jitter.toFixed(3))
+}
+
+/**
+ * 同一套身份变量，但是**给 Vue 自己渲染的逐字元素**用（歌词层，见 §5.17/§5.18）。
+ *
+ * 歌词是 Vue 每句重渲染的文本：如果交给 `splitText()` 去拆，Vue 之后写的是那个
+ * 已经脱离文档的旧 Text 节点 ⇒ 屏上永远是上一句。所以歌词层**声明式**地渲染
+ * `<span class="fchar">`，身份变量在这里算好、`v-bind:style` 一次写死；
+ * 每帧变的仍然只有 hero 上那三个共享变量。
+ */
+export function glyphVars(i: number, big = false): Record<string, string> {
+  const g = glyphIdentity(i, big)
+  return {
+    '--float-i': String(i),
+    '--float-r': `${g.rot.toFixed(2)}deg`,
+    '--float-s': g.scale.toFixed(4),
+    '--float-a': g.pulse.toFixed(4),
+    '--float-j': g.jitter.toFixed(3),
+  }
 }
 
 function untagGlyph(el: HTMLElement): void {
@@ -178,7 +214,12 @@ const SPACE_CHAR = /^\s$/u
 const MARK_CHAR = /^\p{M}$/u
 
 /** 原子：连续空白 / 一个「词」 / 一个独立字（含 CJK、标点、emoji） */
-type Atom = 'space' | 'word' | 'char'
+export type Atom = 'space' | 'word' | 'char'
+
+export interface TextAtom {
+  kind: Atom
+  text: string
+}
 
 /**
  * 把一段文本切成原子。
@@ -187,10 +228,12 @@ type Atom = 'space' | 'word' | 'char'
  *   所以逐字拆开之后，英文会**在词中间**被拆行。把英文词包进
  *   `white-space: nowrap` 的外壳，断行就只发生在词与词之间。
  * ★ 中文/标点/emoji 本来就是「每个字都能断行」，所以逐字拆即可。
+ * ★ 导出给歌词层用（它自己渲染逐字 span，理由见 glyphVars 的注释）——
+ *   两处共用这一份切法，否则歌词的断行规则会和 hero 漂移。
  */
-function atomize(raw: string): Array<{ kind: Atom; text: string }> {
+export function atomizeText(raw: string): TextAtom[] {
   const chars = Array.from(raw)
-  const out: Array<{ kind: Atom; text: string }> = []
+  const out: TextAtom[] = []
   let i = 0
   while (i < chars.length) {
     const ch = chars[i]
@@ -236,7 +279,7 @@ function splitText(text: Text, state: SplitState): void {
   /* ★ 逐字元素（data-letter）自己的文字不再拆 —— 它本身就是一个字 */
   if (parent.hasAttribute('data-letter')) return
 
-  const atoms = atomize(raw)
+  const atoms = atomizeText(raw)
   let need = 0
   for (const a of atoms) need += a.kind === 'space' ? 0 : Array.from(a.text).length
   if (state.glyphs + need > BUDGET) return

@@ -36,8 +36,68 @@ import { computed, nextTick, ref, watch } from 'vue'
 import { useLyrics } from '@/composables/lyrics'
 import { lyricLoader } from '@/lyrics'
 import { current, status } from '@/composables/player'
+import { atomizeText, glyphVars, LONG_ATOM } from '@/composables/floatText'
 
 const { lines, index } = useLyrics()
+
+/* ==================== 逐字渲染（浮水，用户 m01390） ==================== */
+
+interface GlyphSpan {
+  text: string
+  key: string
+  style: Record<string, string>
+}
+
+type Piece =
+  | { kind: 'space'; text: string; key: string }
+  | { kind: 'char'; text: string; key: string; style: Record<string, string> }
+  | { kind: 'word'; key: string; chars: GlyphSpan[] }
+
+/**
+ * 把每句歌词切成「空白 / 词 / 字」三种片段，逐字给一套浮水身份变量。
+ *
+ * ★★ 为什么歌词要**自己**渲染逐字 span，而不是交给 `composables/floatText.ts`
+ *   去拆：歌词是 Vue 每句重渲染的文本。`splitText()` 的做法是把原 Text 节点摘下来
+ *   换成 span，并**留着那个已脱离文档的 Text 节点**给 Vue 之后写 —— 在 hero 的静态
+ *   标题上没问题，但歌词每几秒就换一句，Vue 写进旧节点的字永远上不了屏。
+ *   所以这里声明式地渲染 `<span class="fchar">`，身份变量在渲染时算好；
+ *   每帧变化的仍然只有 hero 上那三个共享变量（`--float-t/-beat/-k`），性能不变。
+ *
+ * ★ 用 floatText 的 `atomizeText()` 而不是自己 split：英文词必须包进 `.fword`
+ *   （`white-space: nowrap`），否则逐字内联块会让英文在词中间断行。
+ * ★ `n` 从 `lineIndex * 7` 起：每句错开相位，换句时不会整句同时呼吸。
+ */
+const rendered = computed(() =>
+  lines.value.map((line, li) => {
+    let n = li * 7
+    /** 取一个字的「身份」：序号只在这里前进，key 与变量同源 */
+    const take = (): { key: string; style: Record<string, string> } => {
+      const key = `g${n}`
+      const style = glyphVars(n)
+      n += 1
+      return { key, style }
+    }
+    const pieces: Piece[] = []
+    for (const atom of atomizeText(line.text)) {
+      if (atom.kind === 'space') {
+        pieces.push({ kind: 'space', text: atom.text, key: `s${pieces.length}` })
+        continue
+      }
+      const chars = Array.from(atom.text)
+      if (atom.kind === 'word' && chars.length <= LONG_ATOM) {
+        pieces.push({
+          kind: 'word',
+          key: `w${pieces.length}`,
+          chars: chars.map((ch) => ({ text: ch, ...take() })),
+        })
+      } else {
+        /* 超长 token（裸链接之类）逐字拆，保证还有断行机会 */
+        for (const ch of chars) pieces.push({ kind: 'char', text: ch, ...take() })
+      }
+    }
+    return { t: line.t, pieces }
+  }),
+)
 
 /** 这首歌到底有没有词（有 lrc 文件才算） */
 const hasLines = computed(() => lines.value.length > 0)
@@ -99,8 +159,10 @@ function slotOf(i: number): Slot {
 
 <template>
   <!-- 纯装饰层：逐句更新对读屏是噪音，整块 aria-hidden -->
-  <!-- data-no-float：播放时 hero 里的字形会浮起来（见 composables/floatText.ts），
-       歌词层就在 hero 里面，且自己在做换句动画 —— 再拆字会两边打架，整块豁免。 -->
+  <!-- data-no-float：这一层**自己**在渲染逐字 span（见 script 的 `rendered`）。
+       如果放任 floatText 的 walker 再进来，它会把每个 `.fchar` 里的那个字**再拆一层**
+       （父子两层变换叠加）。所以整块对 walker 豁免；浮水效果靠 `.fchar` 类 + 继承下来的
+       `--float-*` 变量在这里照常生效。 -->
   <div
     v-if="visible"
     class="lyric-stage"
@@ -108,8 +170,20 @@ function slotOf(i: number): Slot {
     data-no-float
     aria-hidden="true"
   >
-    <p v-for="(line, i) in lines" :key="line.t" class="lyric-line" :data-slot="slotOf(i)">
-      {{ line.text }}
+    <!-- 逐字渲染：每个 `span.fchar` 都带一套浮水身份变量（见 script 里 `rendered` 的注释），
+         播放中由 `.hero[data-float='on']` 那段 CSS 驱动（§5.18）。 -->
+    <p v-for="(line, i) in rendered" :key="line.t" class="lyric-line" :data-slot="slotOf(i)">
+      <template v-for="piece in line.pieces" :key="piece.key">
+        <span v-if="piece.kind === 'word'" class="fword">
+          <span v-for="glyph in piece.chars" :key="glyph.key" class="fchar" :style="glyph.style">{{
+            glyph.text
+          }}</span>
+        </span>
+        <span v-else-if="piece.kind === 'char'" class="fchar" :style="piece.style">{{
+          piece.text
+        }}</span>
+        <template v-else>{{ piece.text }}</template>
+      </template>
     </p>
 
     <!-- 没有歌词的曲目（网易云只给了作曲人行的那首）：层不消失，改为报「这里没有词」。
@@ -173,24 +247,62 @@ function slotOf(i: number): Slot {
     color 0.9s ease;
 }
 
+/* ==================== 逐字（浮水） ==================== */
+/* 逐字 span 在**任何状态**下都是内联块。只在播放时变成内联块的话，点播放那一帧
+   字宽会变（丢掉 kerning）、贴边的长句还可能重新折行 ⇒ 「刚开始浮」像整句跳一下。
+   恒定的内联块就没有这个时刻。
+   ★ 变换（translate/rotate/scale）本身只挂在 `.hero[data-float='on'] .fchar` 上
+     （见 style.css 的「文字浮水」段），所以不播放时这些 span 是**静止**的纯排版。 */
+.lyric-line .fchar {
+  display: inline-block;
+}
+
+/* 英文词外壳：断行只发生在词与词之间（逐字内联块会让英文在词中间断行） */
+.lyric-line .fword {
+  display: inline-block;
+  white-space: nowrap;
+}
+
 /* 跨多句的跳跃（拖进度条 / 切歌）：这一帧不许有过渡，否则整屏歌词横穿画面。 */
 .lyric-stage.is-instant .lyric-line {
   transition: none;
 }
 
 /* ==================== 当前句：正中 ==================== */
-/* ★★ 为什么不是视口 `50%`：hero 的海平面（SoundLine 的波带）就在正中，
-   而波带高 `--band-h` = 振幅 × 3.6（144px）。文字压在 50% 上会被波峰穿字
-   （实测 1440×900：字框 464~511，波带 378~522，整句都在波带里）。
-   ⇒ 往下让出半个波带：视觉上仍站在画面中线附近，波线变成句子头顶的一道水线。
-   ★ 也别再改成「视口 50%」—— hero 顶部有 `--nav-h` 的内边距，
-     内容区的中线比视口中线低 36px，两套基准混用会两边都不居中。 */
+/* ★★ 用户 m01390「中间歌词也改成浮动的，然后放在正中间」⇒ 这里就是**视口正中**。
+ *
+ *   历史：之前怕「波峰穿字」，把当前句压到波带下沿外面
+ *   （`50% + --band-half + 1.25rem`）。现在整句逐字浮起来了，那层顾虑反转了 ——
+ *   海平面从句子附近穿过正好读成「字浮在水面上」，和 hero 的浮水是同一件事。
+ *   ⇒ 锚点 `top: 50%`，`.lyric-stage` 是 `.hero` 的 `inset: 0` 一层，
+ *   hero 铺满 `100svh`，所以 50% 就是视口正中（不是「hero 内容区」的中线）。
+ *   ★ 别改成 `calc(50% + var(--nav-h) / 2)`：hero 顶部那段内边距只是避开导航，
+ *   元素盒仍从 y=0 开始，加了就偏低 36px。
+ *
+ * ★★ `--lyric-lift`：为什么锚在正中却还要抬 0.32em
+ *   把文字盒中心**严格**放在 50%（1440×900 实测 y=450）时，海平面正压在 x-height
+ *   中间 —— 静止时那条 1px 亮线横穿字心，读起来就是**删除线**（三种遮罩都试过：
+ *   2px 暗色 text-shadow 无效、径向「干斑」会在水面上留一块方形面板、背景色块更糟）。
+ *   实测文字盒 45px 高时基线在盒顶 +32px，所以把句子上抬 0.32em（31px 字号 ≈ 10px）
+ *   正好让**基线落在海平面上**：字是「站在水面上」而不是「被水线划过」。
+ *   用 em 而不是 px，字号随断点变也保持同一光学关系；block 视觉中心只比几何中心高
+ *   10px（900 屏的 1.1%），肉眼看仍是正中。
+ *   ★ 播放时波峰仍会漫过字脚（±40px 振幅），那正是「水在动」；不想让水碰字就
+ *   回到 `50% + var(--band-half) + 1.25rem`，但那就不是正中了。 */
 .lyric-line[data-slot='now'] {
+  --lyric-lift: 0.32em;
   left: 50%;
-  top: calc(50% + var(--band-half, 72px) + 1.25rem);
-  translate: -50% -50%;
+  top: 50%;
+  translate: -50% calc(-50% - var(--lyric-lift));
   text-align: center;
   opacity: 1;
+  /* ★ 给逐字的一层紧凑暗光：播放时海平面会漫过字脚，这层“湿边”让水线在笔画
+     背后断开，读成「字在水前面」。只用 `color-mix(--bg)` 的暖蓝，不加描边色。
+     实测 720px 宽里能看出水线在 g / , 的降部后面断了；再收紧就几乎看不出，
+     放大到 20px 以上反而像给字描了一圈脏边。 */
+  text-shadow:
+    0 0 5px color-mix(in srgb, var(--bg) 78%, transparent),
+    0 0 14px color-mix(in srgb, var(--bg) 62%, transparent);
 }
 
 /* ==================== 上一句：右上 ==================== */
@@ -251,13 +363,15 @@ function slotOf(i: number): Slot {
 }
 
 /* ==================== 没有歌词的曲目 ==================== */
-/* 位置与「当前句」完全一致（见上面 50% + --band-half 的理由），只是字号小一档、
-   颜色弱一档 —— 一眼能看出「这里没有词」，而不是「图层没渲染」。 */
+/* 位置与「当前句」完全一致（同 `top: 50%` + 同一份 0.32em 抬升），只是字号小一档、
+   颜色弱一档 —— 一眼能看出「这里没有词」，而不是「图层没渲染」。
+   ★ 抬升必须跟着当前句一起抬：这两块占同一个位置，换歌时会直接互换，
+     一边抬一边不抬就会在这两种状态之间跳 10px。 */
 .lyric-none {
   position: absolute;
   left: 50%;
-  top: calc(50% + var(--band-half, 72px) + 1.25rem);
-  translate: -50% -50%;
+  top: 50%;
+  translate: -50% calc(-50% - 0.32em);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -292,10 +406,12 @@ function slotOf(i: number): Slot {
 @media (max-width: 767px) {
   /* ★ 窄屏上 B 与 NEXT 把两角挤得很满，三句只能往内收：
      上下两句收到 52vw（够放一句主歌，再窄就断成两截），
-     当前句收 70vw —— 767px 以下音乐栏会变成一颗 48px 的固定圆钮（屏幕中右侧、
-     垂直中心 ±24px），max-width 太宽时首行右端会顶到它。 */
+     当前句收 **60vw** —— 767px 以下音乐栏会变成一颗 48px 的固定圆钮
+     （`right: --site-margin`、垂直中心 ±24px）；当前句正中就在这条横线上，
+     70vw 时右端（390 屏实测 305）离圆钮左沿只剩 12px，换一句更长的就贴上了。
+     60vw 在 390 屏是 234px（文字盒 78~312），圆钮左沿 317 ⇒ 留 5px 余量。 */
   .lyric-line {
-    max-width: min(46ch, 70vw);
+    max-width: min(46ch, 60vw);
     font-size: clamp(1.05rem, 5vw, 1.45rem);
   }
 
@@ -308,7 +424,7 @@ function slotOf(i: number): Slot {
   }
 
   .lyric-none {
-    max-width: 70vw;
+    max-width: 60vw;
   }
 
   .lyric-none-title {
