@@ -31,8 +31,14 @@ const filtered = computed(() => filterByTags(allPosts, activeTags.value))
 <template>
   <div class="u-container">
     <header class="page-head">
-      <span class="u-h4 u-muted">共 {{ filtered.length }} 篇</span>
+      <!-- ★ 0 篇时不显示「共 0 篇」（同 ProjectListView 早就有的那条判断）：
+           空态文案已经说明了情况，计数在这里只是重复噪声。
+           仍有文章、只是被标签筛空时**照常显示** —— 那时「共 0 篇」是有效信息。 -->
+      <span v-if="allPosts.length" class="u-h4 u-muted">共 {{ filtered.length }} 篇</span>
       <h1 class="u-h1-cn" v-reveal>全部文章</h1>
+      <p class="page-lead u-main u-muted">
+        写下来的一些东西：文章、笔记、随想。
+      </p>
     </header>
 
     <!-- ★ 写作错误提示：只在 dev 下会出现（生产构建遇错直接失败，走不到这） -->
@@ -94,9 +100,15 @@ const filtered = computed(() => filterByTags(allPosts, activeTags.value))
       </li>
     </ul>
 
-    <p v-if="!filtered.length" class="empty u-muted">
-      <template v-if="activeTags.length">没有同时带这些标签的文章（多个标签取交集）。</template>
-      <template v-else>这里还没有文章。</template>
+    <!-- 空态：共用的「取景框」样式在 style.css 的「空态」段
+         （角标 = hero .hero-corner 的同一套 L 形语言） -->
+    <p v-if="!filtered.length" class="empty">
+      <span class="empty-frame">
+        <span class="empty-corner empty-corner-tr" aria-hidden="true"></span>
+        <span class="empty-corner empty-corner-bl" aria-hidden="true"></span>
+        <template v-if="activeTags.length">没有同时带这些标签的文章（多个标签取交集）。</template>
+        <template v-else>这里还没有文章。</template>
+      </span>
     </p>
 
     <div class="u-section-space"></div>
@@ -116,6 +128,12 @@ const filtered = computed(() => filterByTags(allPosts, activeTags.value))
   display: flex;
   flex-direction: column;
   gap: 1rem;
+}
+
+/* 导语收窄：用 em 不用 ch（ch = 数字 "0" 的宽度，中文换行点不可预期 ——
+   同 ProjectListView 的 .page-lead，24em ≈ 24 个汉字一行）。 */
+.page-lead {
+  max-width: 24em;
 }
 
 /* --- 筛选 --- */
@@ -307,10 +325,8 @@ const filtered = computed(() => filterByTags(allPosts, activeTags.value))
   opacity: 0.55;
 }
 
-.empty {
-  padding-block: var(--section-small);
-  text-align: center;
-}
+/* 空态样式已上提到 style.css 的「空态」段（三个列表页共用一份，
+   避免像原来那样每个 view 各写一遍、然后各自漂移）。 */
 
 /* 写作错误提示框：只在 dev 出现，用站点既有的两色（不引入红色）。
    靠描边 + 半透明底与内容区分，而不是靠色相 —— 守住单色约束。 */

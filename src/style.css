@@ -482,6 +482,47 @@ button {
 }
 
 /* ==========================================================================
+   键盘焦点 —— 全站统一的光圈（2026-10-21）
+   ==========================================================================
+
+   ★ 之前全站**没有一条** focus 规则，键盘 Tab 时是浏览器默认描边
+     （Chromium 深色下接近黑色 1px 细框，在深蓝渐变上几乎看不见；
+      Safari 是亮蓝光圈，与本项目的深邃冷蓝完全不搭）。
+     导航链接 / 页脚链接 / 卡片 / 筛选 pill / NEXT / .btn 全都是这个状态。
+
+   ★ 用 `:focus-visible` 而不是 `:focus`：
+     鼠标点击不该留下光圈，只有键盘（或按住 Alt 时的指针）才显示。
+
+   ★ 用 `outline` 而不是 `box-shadow`：
+     outline 不参与布局、也不会被父级的 overflow 裁掉；
+     box-shadow 会被 `.card-media` 之类的 `overflow: hidden` 吃掉一半。
+
+   ★ 颜色只由 --text 派生（守「仅 brand / text 两色」的约束）：
+     72% 混透明 —— 在渐变两端都看得清，又不像纯白那样刺眼。
+
+   ★ 组件自带的更具体的 focus-visible 规则（MusicBar / MusicBall /
+     AboutView 的图标按钮）选择器优先级更高，会覆盖这条，互不冲突。
+
+   ★★ 环的颜色走 --focus-ring 令牌，默认 --text（米色）。
+     **米色实心卡上必须覆盖成 --brand**：环画在元素外侧，
+     落在卡片的米色底上 —— 米色环配米色底等于隐形
+     （2026-10-21 实测：`.profile-link:focus-visible` 的 outline 解析为
+      rgba(255,248,231,.72)，而 `.profile-card` 的底色是 #fff8e7）。
+     覆盖写在本段下面的「米色卡」选择器组里，组件不用各自重复。 */
+:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--focus-ring, var(--text)) 72%, transparent);
+  outline-offset: 3px;
+}
+
+/* 米色实心卡（About 的三张侧栏卡）—— 焦点环用深蓝，
+   否则米色环落在米色底上完全看不见。 */
+.profile-card,
+.stats-card,
+.steam-card {
+  --focus-ring: var(--brand);
+}
+
+/* ==========================================================================
    排版工具类 —— 对应原站 .u-text-style-*
    ========================================================================== */
 
@@ -716,6 +757,85 @@ button {
   position: relative;
   /* 注意：不要设 line-height:1，中文会上下贴住 */
   line-height: 1.4;
+  /* ★ 文字动作按钮原来**没有任何 hover 反馈**（既不变色也不画线）——
+     「继续阅读」「回到首页」「所有项目」在鼠标下和静态文字一模一样，
+     只有一个手型光标。补一条与列表卡片标题同款的下划线：
+     默认透明、hover 才连同颜色一起出现，不改变文字的静态观感。
+     （不用 color → --muted：那几个按钮里有 `.to-top`，它自己的 hover
+       是「压暗的透明度回到 1」，两套同时作用会互相抵消。） */
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.24em;
+  transition:
+    text-decoration-color 0.3s var(--ease),
+    color 0.3s var(--ease);
+}
+
+.btn:hover {
+  text-decoration-color: color-mix(in srgb, currentColor 78%, transparent);
+}
+
+/* ==========================================================================
+   空态 —— 共用的「取景框」（2026-10-21）
+   ==========================================================================
+
+   列表 / 归档 / 项目三个页面在内容为空时都只剩一行居中的灰字
+   （`padding-block: --section-small; text-align: center`），
+   下面跟着 8rem 的区块留白 —— 整页看起来像没加载完。
+
+   这里给空态一个轻量的「取景框」：两个 L 形角标（上右 + 下左），
+   与 hero 的 `.hero-corner`（HomeView.vue 的 `--corner-w` 那套）
+   以及导航当前页的「」角标是**同一种语言**，不引入任何新色相 ——
+   角标取 `--line`，文字取 `--muted`。
+
+   ★ 用 `inline-block` 的内层包角标：外层的 `.empty` 负责居中，
+     内层宽度随文字收缩，角标才会贴着文字而不是贴着整行。
+   ★ 角标不进无障碍树（`aria-hidden`），只是纯装饰。
+   ★ 三个页面共用这一份规则（原来每个 view 各写一遍 .empty，已经在各处漂移：
+     归档页多带了 `u-main`，字号与另外两页不同）。 */
+.empty {
+  display: flex;
+  justify-content: center;
+  padding-block: var(--section-small);
+}
+
+.empty-frame {
+  position: relative;
+  display: inline-block;
+  max-width: 34em;
+  padding: 1.35rem 2.4rem;
+  /* 中文句子用 em 而非 ch 量宽（ch = "0" 的宽，中文字符约两倍宽，
+     行尾落点不可预期 —— 项目里已踩过一次，见 ProjectListView 的注释）。 */
+  font-family: var(--font-body);
+  font-size: var(--fs-small);
+  line-height: var(--lh-main-cn);
+  letter-spacing: 0.04em;
+  text-align: center;
+  color: var(--muted);
+  text-wrap: pretty;
+}
+
+.empty-corner {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  color: var(--line);
+}
+
+/* 上右 + 下左：与 hero 的角标同一种对角关系（⌐ … L） */
+.empty-corner-tr {
+  top: 0;
+  right: 0;
+  border-top: 1px solid currentColor;
+  border-right: 1px solid currentColor;
+}
+
+.empty-corner-bl {
+  bottom: 0;
+  left: 0;
+  border-bottom: 1px solid currentColor;
+  border-left: 1px solid currentColor;
 }
 
 /* 卡片：仅一条上边线 */

@@ -951,7 +951,9 @@ onUnmounted(() => {
 .mb-item-index {
   grid-area: no;
   font-family: var(--font-mono);
-  font-size: 9px;
+  /* ★ 9px → 10px（2026-10-21）：抽屉是整行宽度，不再受 240px 胶囊的
+     行内预算挤压 —— 序号 / 艺术家 / 时长没有理由比胶囊里的时间还小。 */
+  font-size: 10px;
   opacity: 0.55;
 }
 
@@ -967,7 +969,7 @@ onUnmounted(() => {
 .mb-item-artist {
   grid-area: artist;
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: 10px;
   opacity: 0.6;
   overflow: hidden;
   white-space: nowrap;
@@ -977,7 +979,7 @@ onUnmounted(() => {
 .mb-item-time {
   grid-area: time;
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: 10px;
   font-variant-numeric: tabular-nums;
   opacity: 0.6;
 }

@@ -63,7 +63,15 @@ const count = computed(() => projects.length)
       </li>
     </ul>
 
-    <p v-else class="empty u-muted">这里还没有项目。</p>
+    <!-- 空态：共用的「取景框」样式在 style.css 的「空态」段
+         （角标 = hero .hero-corner 的同一套 L 形语言） -->
+    <p v-else class="empty">
+      <span class="empty-frame">
+        <span class="empty-corner empty-corner-tr" aria-hidden="true"></span>
+        <span class="empty-corner empty-corner-bl" aria-hidden="true"></span>
+        这里还没有项目。
+      </span>
+    </p>
 
     <div class="u-section-space"></div>
   </div>
@@ -143,10 +151,7 @@ const count = computed(() => projects.length)
   opacity: 0.72;
 }
 
-.empty {
-  padding-block: var(--section-small);
-  text-align: center;
-}
+/* 空态样式已上提到 style.css 的「空态」段（三个列表页共用一份）。 */
 
 /* 写作错误提示框：只在 dev 出现，用站点既有的两色（不引入红色）。
    靠描边 + 半透明底与内容区分，而不是靠色相 —— 守住单色约束。

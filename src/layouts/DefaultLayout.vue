@@ -803,7 +803,11 @@ watch(
 }
 
 .footer-contact-text {
-  max-width: 33ch;
+  /* ★ 33ch → 20em（2026-10-21）：ch = 数字 "0" 的宽度，中文字符约两倍宽，
+     用它量中文段落的换行点完全不可预期（ProjectListView 的 .page-lead
+     已经踩过一次，注释里写着「中文句子用 em」）。
+     20em ≈ 20 个汉字一行，两行把这句话排完，行尾也稳定。 */
+  max-width: 20em;
 }
 
 @media (max-width: 991px) {

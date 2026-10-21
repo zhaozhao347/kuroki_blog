@@ -297,6 +297,29 @@ body 会被 `scrollbar-gutter` 挤窄，html 的盒子就是视口。
 ★ **绝不给含中文的文本设 `line-height: 1`**。
 自检：遍历叶子元素，含中文且 `lineHeight < fontSize * 1.15` 即算重叠。
 
+### 3.6 交互态与空态（2026-10-21 增补）
+
+这三样以前是全站缺失的，属于「看得到但没人写」的那一类；改动都在
+`src/style.css`（「键盘焦点」段 + 组件段的 `.btn` 与「空态」段），
+**组件里不要再各写一份**。
+
+| 件 | 规则 | 为什么 |
+| --- | --- | --- |
+| 键盘焦点 | `:focus-visible { outline: 2px solid color-mix(in srgb, var(--focus-ring, var(--text)) 72%, transparent); outline-offset: 3px }` | 之前全站零 focus 规则，Tab 时是 UA 默认描边（深色下近乎不可见） |
+| 米色卡上的焦点环 | `.profile-card / .stats-card / .steam-card { --focus-ring: var(--brand) }` | ★★ 环画在元素外侧、落在卡片底色上 —— 米色环配米色底**等于隐形**（实测 `.profile-link:focus-visible` 解析成 `rgba(255,248,231,.72)`，卡底 `#fff8e7`） |
+| `.btn` hover | `text-decoration: underline` + 透明 `text-decoration-color`，hover 时升到 `color-mix(currentColor 78%)` | 原来是纯文字按钮，hover 零反馈；用 `text-decoration` 而不是 `border-bottom`，不动布局 |
+| 空态 | `.empty`（`display:flex` 居中）+ `.empty-frame`（取景框）+ `.empty-corner-tr/-bl`（L 形角标，14px / 1px `var(--line)`） | 三个列表页原来各写一遍 `.empty`，字号与类组合已经漂移（归档页多带了 `u-main`）；角标与 `.hero-corner` 同一套语言 |
+
+★ 空态结构固定为 **`.empty > .empty-frame > 两个 .empty-corner + 文案`**
+（`ArticleListView` / `ArchiveView` / `ProjectListView` 三处）：
+用 `inline-block` 的内层包角标，外层只负责居中 —— 角标贴的是**文字框边缘**，
+所以文字折行时框会跟着长。宽度 `max-width: 34em`（中文用 em 不用 ch）。
+★ 空计数一律不显示：`v-if="allPosts.length"` / `v-if="postTotal"` /
+`v-if="count"`（Projects 早就这么做，另外两页 2026-10-21 才跟上）——
+空态文案已经说明了情况，「共 0 篇」是重复噪声。
+★ 三个列表页页头现在结构一致：计数（可空）→ `h1.u-h1-cn` → `.page-lead`
+（`max-width: 24em`，用 em 不用 ch）。
+
 ---
 
 ## 4. hero 尺寸体系 ★★ 改这里之前必读
@@ -2112,3 +2135,49 @@ const pages = ['/', '/articles', '/archive', '/about',
 | 必填字段 / 日期格式 / slug 唯一 | 否则页面空白、排序错乱、互相覆盖 |
 | `404.html` + `?redirect` + `.nojekyll` | GitHub Pages 深链接必需 |
 
+
+<!-- GRAPHFLOW:BEGIN managed block — edit outside these markers only -->
+# GraphFlow for Claude Code
+
+Use GraphFlow as a local orchestration and context service.
+
+## Recommended setup
+
+Add a local MCP server entry that launches GraphFlow over stdio:
+
+```json
+{
+  "mcpServers": {
+    "graphflow": {
+      "command": "npx",
+      "args": ["-y", "--package=@roarpeng/graphflow", "graphflow-mcp"]
+    }
+  }
+}
+```
+
+During repository development you can also point Claude Code at this checkout:
+
+```json
+{
+  "mcpServers": {
+    "graphflow": {
+      "command": "npm",
+      "args": ["run", "start:mcp"],
+      "cwd": "."
+    }
+  }
+}
+```
+
+## Usage guidance
+
+- Ask GraphFlow to plan before broad changes: `graphflow_plan`.
+- Ask GraphFlow to compress and anchor code context: `graphflow_context`.
+- Always pass `rootDir` = this project's absolute path. **Never** pass your home directory, AppData, or an unexpanded `${workspaceFolder}` placeholder — GraphFlow refuses unsafe workspace roots. If a call answers `unsafe workspace root`, retry the same call without `rootDir` (the server then uses its configured workspace).
+- Ask GraphFlow to inspect graph state or skill learnings when the repo history matters.
+- After executing work from a `graphflow_run` `executionDescriptor`, **must** call `graphflow_report_outcome` with the `episodeId` from the run result, a `success` boolean, and optional `lessons` to close the skill flywheel loop.
+- Fall back to `graphflow ... --json` only if MCP is not available (including `graphflow --json outcome report <episodeId> <success>`).
+
+DeepSeek Harness: `dsh plugin --profile web add @roarpeng/graphflow` (or `npx @roarpeng/graphflow install` when `~/.dsh` exists).
+<!-- GRAPHFLOW:END -->

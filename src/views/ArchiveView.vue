@@ -34,10 +34,14 @@ const shown = computed(() => groups.value.reduce((n, g) => n + g.items.length, 0
 <template>
   <div class="u-container">
     <header class="page-head">
-      <span class="u-h4 u-muted">
+      <!-- ★ 0 篇时不显示「0 / 0 篇 · 0 个月」（同 ProjectListView 的空计数判断） -->
+      <span v-if="postTotal" class="u-h4 u-muted">
         {{ shown }} / {{ postTotal }} 篇 · {{ groups.length }} 个月
       </span>
       <h1 class="u-h1-cn" v-reveal>归档</h1>
+      <p class="page-lead u-main u-muted">
+        把文章按年月摊开，用来回看。
+      </p>
     </header>
 
     <!-- 年份筛选：只有跨年才出现（单年时是纯噪声） -->
@@ -106,9 +110,15 @@ const shown = computed(() => groups.value.reduce((n, g) => n + g.items.length, 0
       </section>
     </div>
 
-    <p v-if="!shown" class="empty u-main u-muted">
-      <template v-if="postTotal">没有同时满足这些条件的文章。</template>
-      <template v-else>这里还没有文章。</template>
+    <!-- 空态：共用的「取景框」样式在 style.css 的「空态」段
+         （角标 = hero .hero-corner 的同一套 L 形语言） -->
+    <p v-if="!shown" class="empty">
+      <span class="empty-frame">
+        <span class="empty-corner empty-corner-tr" aria-hidden="true"></span>
+        <span class="empty-corner empty-corner-bl" aria-hidden="true"></span>
+        <template v-if="postTotal">没有同时满足这些条件的文章。</template>
+        <template v-else>这里还没有文章。</template>
+      </span>
     </p>
 
     <div class="u-section-space"></div>
@@ -129,6 +139,11 @@ const shown = computed(() => groups.value.reduce((n, g) => n + g.items.length, 0
   gap: 1rem;
 }
 
+/* 导语收窄：用 em 不用 ch（同 ProjectListView 的 .page-lead）。 */
+.page-lead {
+  max-width: 24em;
+}
+
 .group {
   display: grid;
   grid-template-columns: minmax(0, 6rem) 1fr;
@@ -139,7 +154,11 @@ const shown = computed(() => groups.value.reduce((n, g) => n + g.items.length, 0
 
 .group-month {
   position: sticky;
-  top: 4.5rem;
+  /* ★ 原来写死 `4.5rem`（= 桌面导航高 72px）—— 月份标签会**紧贴着导航底边**
+     停住，滚动时半截钻到毛玻璃下面。改为「导航高 + 1rem」，留出一段呼吸：
+     · 用 --nav-h 而不是硬编码，窄屏导航变矮时自动跟随；
+     · +1rem 是标签与导航之间的最小间距（视觉上像贴在导航下方的一行小字）。 */
+  top: calc(var(--nav-h) + 1rem);
   align-self: start;
   opacity: 0.8;
 }
@@ -246,10 +265,9 @@ const shown = computed(() => groups.value.reduce((n, g) => n + g.items.length, 0
   opacity: 0.7;
 }
 
-.empty {
-  padding-block: var(--section-small);
-  text-align: center;
-}
+/* 空态样式已上提到 style.css 的「空态」段（三个列表页共用一份，
+   避免像原来那样每个 view 各写一遍、然后各自漂移 ——
+   归档页原来还多带了 `u-main`，字号与另外两页就已经不一样了）。 */
 
 @media (max-width: 800px) {
   .group {
