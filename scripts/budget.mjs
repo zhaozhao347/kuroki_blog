@@ -57,6 +57,17 @@ if (!existsSync(dist)) {
   process.exit(2)
 }
 
+/* ---------- 预备：全产物扫描（① 要用它定位带 base 前缀的引用） ---------- */
+const all = walk(dist).map((f) => {
+  const b = readFileSync(f)
+  return {
+    file: f.slice(dist.length + 1).split('\\').join('/'),
+    ext: f.slice(f.lastIndexOf('.')).toLowerCase(),
+    raw: b.length,
+    gz: gzipSync(b, { level: 9 }).length,
+  }
+})
+
 /* ---------- ① 首屏成本 ---------- */
 const html = readFileSync(join(dist, 'index.html'), 'utf8')
 const refs = [...html.matchAll(/(?:src|href)="([^"]+)"/g)]
@@ -67,28 +78,21 @@ const firstLoad = []
 let firstRaw = 0
 let firstGz = 0
 for (const r of new Set(refs)) {
-  const f = join(dist, r.replace(/^\//, ''))
-  if (!existsSync(f)) {
+  const rel = r.replace(/^\//, '')
+  /* ★ 不能直接 join(dist, rel)：CI 用 BASE_PATH 构建时（GitHub Pages 项目页是 /<repo>/），
+     index.html 里写的是 `/kuroki_blog/assets/xxx.js`，而 dist 里没有 kuroki_blog/ 这一层，
+     直接拼会「引用了不存在的文件」→ exit 2，让「体积预算」永远红、deploy 永不执行。
+     所以按「产物相对路径是引用的后缀」兜底匹配，base 有几段都不影响。 */
+  const hit =
+    all.find((x) => x.file === rel) ?? all.find((x) => rel.endsWith('/' + x.file))
+  if (!hit) {
     console.error('✗ index.html 引用了不存在的文件：' + r)
     process.exit(2)
   }
-  const b = readFileSync(f)
-  const g = gzipSync(b, { level: 9 })
-  firstRaw += b.length
-  firstGz += g.length
-  firstLoad.push({ file: r, raw: b.length, gz: g.length })
+  firstRaw += hit.raw
+  firstGz += hit.gz
+  firstLoad.push({ file: r, raw: hit.raw, gz: hit.gz })
 }
-
-/* ---------- ② 全产物 ---------- */
-const all = walk(dist).map((f) => {
-  const b = readFileSync(f)
-  return {
-    file: f.slice(dist.length + 1).split('\\').join('/'),
-    ext: f.slice(f.lastIndexOf('.')).toLowerCase(),
-    raw: b.length,
-    gz: gzipSync(b, { level: 9 }).length,
-  }
-})
 
 const bucket = {}
 for (const x of all) {
