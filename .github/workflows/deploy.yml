@@ -67,13 +67,15 @@ jobs:
         #   任何一篇 md 写错都会让 job 失败，CI 会邮件通知。
         run: npm run build
         env:
-          # ★ 部署到 GitHub Pages 时通常需要 base 前缀。
-          #   仓库名是 <user>.github.io 时留空（默认 '/'）；
-          #   否则设成 '/<仓库名>/'。
+          # ★ BASE_PATH 决定产物里的资源路径前缀，写错的表现是「页面出来了但白屏」。
           #
-          #   这里用仓库名自动推导：只对「项目页」加前缀。
-          #   如果你用的是自定义域名或 user.github.io，把这段删掉即可。
-          BASE_PATH: ${{ github.event.repository.name == format('{0}.github.io', github.repository_owner) && '/' || format('/{0}/', github.event.repository.name) }}
+          #   现在站点跑在自定义**根域** `https://kuroki.top`，所以必须是 `/`。
+          #   （以前用 `https://<user>.github.io/<repo>/` 项目页时，这里按仓库名推导成
+          #   `/<repo>/`；换成根域后那个前缀会让 /assets/* 全部 404。）
+          #
+          #   万一以后回到项目页、又没绑自定义域，把下面一行换成：
+          #     BASE_PATH: /${{ github.event.repository.name }}/
+          BASE_PATH: /
 
       - name: 体积预算
         # ★ 首屏 ≤88 KB gz、单块 ≤150 KB gz、单个大二进制 ≤1.5 MB raw
