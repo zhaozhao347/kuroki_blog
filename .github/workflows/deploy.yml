@@ -77,6 +77,17 @@ jobs:
           #     BASE_PATH: /${{ github.event.repository.name }}/
           BASE_PATH: /
 
+          # ── 三个接口端点（都指向同一个 Worker：workers/api）───────────────
+          # 值来自仓库 Settings → Secrets and variables → Actions 的 **Variables**
+          # （不是 Secrets —— 这三个会被打进前端代码，本来就是公开的）。
+          #
+          # 没配时是空串 ⇒ 前端一个请求都不发，音乐栏 / 浏览量 / Steam 卡各显示
+          # 自己的空态（看得见的空，不是报错）。配好后重跑一次 workflow 才生效，
+          # 因为 Vite 是在**构建时**把 `import.meta.env.VITE_*` 替换成字面量的。
+          VITE_VIEWS_ENDPOINT: ${{ vars.VITE_VIEWS_ENDPOINT }}
+          VITE_MUSIC_ENDPOINT: ${{ vars.VITE_MUSIC_ENDPOINT }}
+          VITE_STEAM_ENDPOINT: ${{ vars.VITE_STEAM_ENDPOINT }}
+
       - name: 体积预算
         # ★ 首屏 ≤88 KB gz、单块 ≤150 KB gz、单个大二进制 ≤1.5 MB raw
         #   （见 §5.10）。超了就让 job 红掉 —— 加 3D 模型 / 大图之后
