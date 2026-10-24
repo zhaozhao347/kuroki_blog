@@ -48,6 +48,23 @@
         margin: 0;
       }
     </style>
+    <!--
+      深链接回跳（GitHub Pages 没有服务端路由：直接访问 /about 会命中 404.html，
+      由它跳到 `/?redirect=/about`）。这段必须在**任何 module 之前**跑。
+
+      ★ 为什么不能只写在 src/main.ts 里：`import router from './router'` 是 ES 模块，
+        会在 main.ts 的函数体**之前**求值；而 `createWebHistory()` 在被调用的那一刻
+        就把当前 location 记成了 `/`。等 main.ts 里的 replaceState 跑完，router 已经
+        按 `/?redirect=/about` 建好历史，初始化时又把 URL 写回 `?redirect=…`
+        —— 实测 `location.href` 从 `/about` 被改回去，页面永远落在首页。
+      ★ 这里先改掉地址栏，后面的 router 就是在 `/about` 上创建的，路由与滚动都正常。
+    -->
+    <script>
+      ;(function () {
+        var raw = new URLSearchParams(location.search).get('redirect')
+        if (raw && raw.charAt(0) === '/') history.replaceState(null, '', raw)
+      })()
+    </script>
   </head>
   <body>
     <div id="app"></div>

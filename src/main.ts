@@ -30,10 +30,13 @@ import { vImgFallback } from './directives/imgFallback'
  *   Pages 没有服务端路由：直接访问 /articles/hello 会命中 404.html，
  *   而 404.html 会把路径塞进 `?redirect=<原路径>` 回到 index.html
  *   （见 public/404.html）。
- *   这里把它读出来、`replaceState` 成正常 URL，**必须在 mount 之前**
- *   —— 否则 router 已经按 `/?redirect=...` 匹配过了，会先闪一下 404 页。
  *
- *   本地开发（vite dev/preview）本来就是 SPA 回退，这段代码不会触发。 */
+ *   ★★ 真正起作用的是 `index.html` <head> 里那段**内联脚本** —— 这段代码其实
+ *      跑得太晚了：`import router from './router'` 是 ES 模块，会在本文件函数体
+ *      之前求值，`createWebHistory()` 一被调用就把 location 记成 `/`；随后 router
+ *      初始化会 replaceState 回 `?redirect=…`，把这里刚改好的地址又写回去
+ *      （实测：`location.href` 从 /about 被改回 `?redirect=%2Fabout`，页面留在首页）。
+ *      保留这段只为兜底（例如内联脚本被 CSP 拦掉、或页面被别的容器注入）。 */
 const params = new URLSearchParams(window.location.search)
 const redirect = params.get('redirect')
 if (redirect && redirect.startsWith('/')) {
