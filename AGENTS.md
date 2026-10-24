@@ -1326,6 +1326,20 @@ links:                                    # 可选：YAML 数组
 `/views`、`/music`、`/steam` 三个中间件（KV 与缓存换成进程内存版），所以不存在
 「dev 能跑、线上不行」。★ 改端点只需改 `workers/api/src/*.js` 一处，两边同时生效。
 
+★★ **边缘缓存（2026-10-25 加）**：`src/index.js` 的 `edgeCached()` 用 `caches.default` 把
+`GET /views` 与 `GET /steam*` 的 200 响应在边缘存 **60 秒**（`EDGE_TTL`）。动机是实测：
+国内打开「关于」页时这两个请求要跨洋回源，Worker 冷启动 + KV 往返能到**秒级**，
+而页面上的数字晚 60 秒没人看得出来；命中时直接由最近的 PoP 返回（几十毫秒）。
+
+- `fetch(request, env, ctx)` —— **第三个参数 `ctx` 不是装饰**：没有 `waitUntil` 就没法在
+  响应发出后异步写缓存。
+- 缓存 key 由 `cacheKeyOf()` 归一成 `origin + pathname`（这两个端点不吃查询串）。
+- `POST /views` 永远不进缓存，且会 `caches.default.delete()` 掉 GET 的缓存 ——
+  否则刚计完数还读到旧值。`x-edge-cache: hit|miss` 是排查标记，别删。
+- ⚠️ **音乐端点绝不缓存**：音频靠 `Range` 分段拉，套一层缓存会把分段语义搅乱（见 §5.7 第 4 条）。
+- ⚠️ 面板上**不要**再给 `api.kuroki.top` 加 Cache Rule —— 两层缓存叠起来会变成「旧值 120 秒」，
+  排查时还分不清是哪一层在给旧数据。
+
 **Steam 卡**（`src/components/SteamCard.vue` + `src/composables/steam.ts`，用户 m16721 定的形态
 「关于页侧栏新加一张『最近在玩』卡」）：
 

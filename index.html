@@ -8,6 +8,16 @@
     <meta name="description" content="记录技术、想法与生活的个人博客" />
     <title>我的博客</title>
     <!--
+      跨域预连接（省掉首次请求的 DNS + TCP + TLS 三轮往返）。
+      ★ 只对**确定会用**的源写 preconnect：api.kuroki.top 是「关于」页的浏览量 / Steam 卡，
+        首页一进去就会打一枪浏览量，所以值得提前握手。
+      ★ 音乐 CDN 不能写死 —— 镜像 302 之后的落地域名每首歌、每次换链都不一样
+        （`m801.music.126.net` / `m802…`），写了也白写。所以只给镜像入口做个 dns-prefetch。
+      ★ 这两行**不改变任何加载时机**：preconnect 只是提前握手，不发请求体。
+    -->
+    <link rel="preconnect" href="https://api.kuroki.top" crossorigin />
+    <link rel="dns-prefetch" href="//api.injahow.cn" />
+    <!--
       首屏底色（内联，必须在任何 JS / CSS 之前生效）。
       ★ 为什么要有这一小段：入口 chunk 求值实测会阻塞主线程约 660ms
         （`PerformanceObserver('longtask')`），这段时间里 style.css 还没到达，
