@@ -708,12 +708,25 @@ export function createRenderer(canvas: HTMLCanvasElement) {
 
 #### 曲目从哪来（2026-10-09 起：网易云；仓库里**没有任何音频文件**）
 
-`src/playlist.ts` 是唯一真相源（两首 id + 手写元数据），`url` 拼成
-`${VITE_MUSIC_ENDPOINT}/stream?id=<id>`；dev 没配就落 `/music`
-（`plugins/vite-plugin-api-proxy.ts` 装的是与线上**同一份** `workers/api/src/netease.js`）。
-线上由 Cloudflare Worker `workers/api/` 转发：先向
-`music.163.com/api/song/enhance/player/url/v1?level=exhigh&encodeType=mp3` 换 320 kbps 直链
-（带 IP 令牌、`expi=1200` ⇒ 缓存 15 分钟后过期重取），再把 `Range` 原样透传。
+`src/playlist.ts` 是唯一真相源（两首 id + 手写元数据）。`url` 的拼法分三种情况：
+
+| 场景 | URL | 谁在换直链 |
+| --- | --- | --- |
+| dev（没配 `VITE_MUSIC_ENDPOINT`） | `/music/stream?id=<id>` | `plugins/vite-plugin-api-proxy.ts`（与线上同一份 `workers/api/src/netease.js`） |
+| 配了 `VITE_MUSIC_ENDPOINT` | `<endpoint>/stream?id=<id>` | 自建 Worker 转发字节（支持 Range/206） |
+| **线上默认（都没配）** | `https://api.injahow.cn/meting/?type=url&id=<id>` | 公共镜像 **302** 到网易云 CDN，浏览器直连 CDN |
+
+★★ **线上为什么不用自建 Worker**（2026-10-24 实测）：Worker 跑在 Cloudflare 境外机房，
+网易云对境外 IP 的 playurl 直接回 `code=404`；开 `placement = { mode = "smart" }` 之后
+变成 `code=-462`（风控码）。同一接口从大陆 IP 请求是 `code=200` + 320 kbps 直链
+（7954852 / 8672697 字节）。**这是地域限制，不是代码问题**，别再往这个方向调。
+公共镜像的出口在国内，能正常换到 https 直链；302 之后音频**不经过 Cloudflare**，
+CDN 实测带 `Access-Control-Allow-Origin: *`（Web Audio 能取到数据、波形可用）并支持
+`Range`（`206` + `content-range: bytes 0-1023/7954852`，拖进度条正常）。
+
+★ 镜像挂了怎么办：`src/playlist.ts` 里 `MIRROR` 换一个域名（备选
+`https://api.qijieya.cn/meting/?type=url&id=`，同样 302），或配 `VITE_MUSIC_ENDPOINT`
+回到自建端点（自建端点在国内访问时是能用的，只是 CF 出口被网易云拒）。
 
 ★ 四个必须记住的点：
 
@@ -732,7 +745,10 @@ export function createRenderer(canvas: HTMLCanvasElement) {
    `plugins/vite-plugin-api-proxy.ts` 用 `await pipeline(source, res)`，并配 `isClientGone()`
    把「客户端提前断开」降级成一行 warn。Worker 侧不受影响（Cloudflare 不需要我们管进程存活）。
 
-生产没配 `VITE_MUSIC_ENDPOINT` ⇒ `tracks` 为空 ⇒ 音乐栏走空态文案（`.mb-empty`，写明怎么配）。
+没配 `VITE_MUSIC_ENDPOINT` 也**不会**变空态：线上会自动走公共镜像（见上表）。
+真正让音乐栏空掉的是「曲目表本身为空」（`songs` 删光），或镜像与自建端点同时不可用。
+`siteViews.ts` / `steam.ts` 同理 —— 线上默认兜底到 `https://api.kuroki.top/...`，
+只有 dev 才是「没配就不发请求」。
 
 ★ 播放态不是换一套主题色，而是靠 `--mb-wipe`（135deg 渐变）把外壳整体「擦」成蓝底、
 字色同时翻成米色；`--mb-track` / `--mb-fill` / `--mb-edge` 都用 `@property syntax: '<color>'`
@@ -2051,17 +2067,16 @@ const pages = ['/', '/articles', '/archive', '/about',
 
 ### 未完成
 
-- ⬜ **站点还没上线** —— `https://zhaozhao347.github.io/kuroki_blog/` 现在返回 404
-  「There isn't a GitHub Pages site here」。要查：Actions 有没有跑过、仓库
-  **Settings → Pages → Source** 是否选了 **GitHub Actions**。
-  ★ git 那一步已完成：`master` 跟踪 `origin` = `github.com/zhaozhao347/kuroki_blog`，
-  基线时领先 `origin/master` 1 个提交（`adcecc8`），且 `master` 只有 2 个提交；
-  `git log --all` 里那串 `Agent host session …` 是宿主自动检查点
-  （挂在 `refs/agents/<session>/checkpoints/turn/N`），不在任何分支，别当项目历史。
-- ⬜ **边缘函数只差部署**（代码全写完，见 §5.16）：`cd workers/api` → `npx wrangler login` →
-  `npx wrangler kv namespace create VIEWS`（把 id 填进 `wrangler.toml`）→ `npx wrangler secret put STEAM_API_KEY`
-  → 把 17 位 steamID64 填进 `[vars] STEAM_ID` → `npx wrangler deploy` → 三个 `VITE_*_ENDPOINT` 写进 `.env.local`。
-  ★ 本地 dev 想看 Steam 卡要 `$env:STEAM_API_KEY` + `$env:STEAM_ID`（可能还要 `$env:NODE_OPTIONS = '--use-system-ca'`）。
+- ✅ **站点已上线**（2026-10-24）：`https://kuroki.top/`（GitHub Pages + Cloudflare CDN），
+  API 在 `https://api.kuroki.top/`（Worker `kuroki-blog`）。
+  - Pages 走 `deploy.yml`：push → `check:content` → `build` → `budget:check` → `upload-pages-artifact` → `deploy-pages`。
+  - `BASE_PATH` 已改成 `/`（自定义域在根目录）；哪天退回项目页要改回 `/kuroki_blog/`。
+  - 仓库只剩一个分支 `main`（`origin/master` 已删，默认分支就是 `main`）。
+- ✅ **边缘函数已部署**（同上）：KV `VIEWS` 已绑（`/views` 实测自增）、`STEAM_API_KEY` 机密已配
+  （`/steam` 返回真实资料）、`api.kuroki.top` 自定义域 + 证书由 wrangler 的
+  `routes = [{ pattern = "api.kuroki.top", custom_domain = true }]` 建好。
+  - ⚠️ 音乐端点 `/music/stream` **在线上不可用**（网易云对 Cloudflare 境外出口 404/-462），
+    前端已改为直连公共镜像，见 §5.7。
 - ⬜ `DEVELOPMENT.md` 未补文章系统章节（现有交叉引用仍有效）。
 - ⬜ **3D 模型到货后**：`npm run model:prepare -- 模型.glb` 压缩 → 拍 poster →
   自己在调用方动态 `import('three')` 挂到 hero 舞台（原 `DeferredStage` 管线已于
