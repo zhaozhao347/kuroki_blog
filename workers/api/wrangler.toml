@@ -7,14 +7,28 @@
 #   npx wrangler secret put STEAM_API_KEY     # → 粘贴 https://steamcommunity.com/dev/apikey 给的 key
 #   npx wrangler deploy
 #
-# 部署完会打印地址，把它写进项目根 `.env.local`（三个变量指向同一个域，路径不同）：
-#   VITE_MUSIC_ENDPOINT=https://blog-api.<你的子域>.workers.dev/music
-#   VITE_VIEWS_ENDPOINT=https://blog-api.<你的子域>.workers.dev/views
-#   VITE_STEAM_ENDPOINT=https://blog-api.<你的子域>.workers.dev/steam
+# 部署完会打印地址。线上走自定义域（下面的 routes），三个变量指向同一个域、路径不同：
+#   VITE_MUSIC_ENDPOINT=https://api.kuroki.top/music
+#   VITE_VIEWS_ENDPOINT=https://api.kuroki.top/views
+#   VITE_STEAM_ENDPOINT=https://api.kuroki.top/steam
+#
+# ★ Worker 名字必须与 Cloudflare 上那个 Workers Builds 项目同名（现在都是 `kuroki-blog`）。
+#   不一致时 CI 会打一条 WARNING 并**强制覆盖**成项目名，还会尝试提 PR 改这个文件 ——
+#   所以别再把 name 改成别的。
 
-name = "blog-api"
+name = "kuroki-blog"
 main = "src/index.js"
 compatibility_date = "2025-06-01"
+
+# 绑自定义域（Workers 侧）。`custom_domain = true` 会让 wrangler 自己建 DNS 记录 +
+# 申请证书，等价于控制台里「设置 → 域和路由 → 添加 → 自定义域」。
+# ★ 必须是**本账号下的 zone**，否则 deploy 会报找不到 zone。
+# ★ 不写这块也能跑，但只能走 `*.workers.dev` —— 那个域名在国内基本连不上
+#   （实测 `kuroki-blog.huolandeshuyin.workers.dev` 从大陆直接连接超时），
+#   所以线上必须走这个自定义域。
+routes = [
+  { pattern = "api.kuroki.top", custom_domain = true },
+]
 
 # ── 存储 ────────────────────────────────────────────────────────────────
 # 三件事里只有浏览量要持久化（一个 key）。音乐不用 KV（直链只缓存在 isolate 内存
