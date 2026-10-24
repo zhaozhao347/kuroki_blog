@@ -27,7 +27,12 @@
  */
 
 /** 端点地址（末尾斜杠先去掉，免得拼出 `//`） */
-const ENDPOINT = (import.meta.env.VITE_STEAM_ENDPOINT ?? '').trim().replace(/\/+$/, '')
+const ENV_ENDPOINT = (import.meta.env.VITE_STEAM_ENDPOINT ?? '').trim().replace(/\/+$/, '')
+
+/* 线上兜底，理由同 `siteViews.ts`：漏配构建变量时不该整张卡消失。 */
+const PROD_FALLBACK = 'https://api.kuroki.top/steam'
+
+const ENDPOINT = ENV_ENDPOINT || (import.meta.env.PROD ? PROD_FALLBACK : '')
 
 /** 端点配了没？没配时卡片整个不渲染，且一次请求都不发 */
 export const hasSteamEndpoint = ENDPOINT.length > 0

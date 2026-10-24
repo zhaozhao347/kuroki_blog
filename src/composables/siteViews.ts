@@ -24,7 +24,14 @@
  */
 
 /** 端点地址（末尾斜杠先去掉，免得拼出 `//`） */
-const ENDPOINT = (import.meta.env.VITE_VIEWS_ENDPOINT ?? '').trim().replace(/\/+$/, '')
+const ENV_ENDPOINT = (import.meta.env.VITE_VIEWS_ENDPOINT ?? '').trim().replace(/\/+$/, '')
+
+/* 线上兜底：这份代码就是给 kuroki.top 用的，仓库 Variables 没配时直接走 Worker 的自定义域。
+   ★ 之所以不强制依赖构建变量：漏配时整站会「静默不显示浏览量」，比写死一个域名更难排查。
+   ★ dev 不受影响 —— 那里走 `plugins/vite-plugin-api-proxy.ts` 的 `/views` 中间件。 */
+const PROD_FALLBACK = 'https://api.kuroki.top/views'
+
+const ENDPOINT = ENV_ENDPOINT || (import.meta.env.PROD ? PROD_FALLBACK : '')
 
 /** 端点配了没？没配时组件直接显示 `—`，且一次请求都不发 */
 export const hasViewsEndpoint = ENDPOINT.length > 0
