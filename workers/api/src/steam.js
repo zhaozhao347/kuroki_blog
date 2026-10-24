@@ -33,6 +33,12 @@ const APP_ICON = 'https://media.steampowered.com/steamcommunity/public/images/ap
  *  ★ 导出给 dev 中间件用：线上那份走 `caches.default`（TTL 由响应头决定），
  *    dev 的 Map 版得自己知道过期时间 —— 一处定义，两边一致。 */
 export const CACHE_TTL_S = 300
+
+/**
+ * 「上一份成功数据」留多久（秒）。
+ * ★ 上游 5xx / 超时不可怕，可怕的是没有兜底 —— 留 7 天，够跨过一次 Steam 抽风。
+ */
+const STALE_TTL_S = 7 * 24 * 60 * 60
 /** 默认取几款最近在玩的 */
 const DEFAULT_COUNT = 3
 /** 上游 count 上限是 51，这里收窄到 10 —— 卡片最多也就显示三四条 */
@@ -71,7 +77,12 @@ function describeError(e) {
   return detail && detail !== e.message ? `${e.message} (${detail})` : e.message
 }
 
-async function fetchJson(url) {
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+
+/** 重试间隔：Steam 偶发的 500/503 与连接抖动，隔几百毫秒再打一次基本就过了 */
+const RETRY_DELAYS_MS = [250, 700]
+
+async function fetchOnce(url) {
   const ctrl = new AbortController()
   const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS)
   try {
@@ -81,6 +92,31 @@ async function fetchJson(url) {
   } finally {
     clearTimeout(timer)
   }
+}
+
+/**
+ * 带重试的取 JSON。
+ *
+ * ★★ 为什么必须重试：Steam Web API 的 500/503 是**常态级偶发**（尤其
+ *    `GetRecentlyPlayedGames`），单次失败就让整张卡变成「加载失败了😫」太脆。
+ * ★ 只重试「可能自己好」的错误：网络错误 / 超时 / 429 / 5xx；
+ *    4xx（key 错、id 错）重试三次也是三次白跑，直接抛。
+ */
+async function fetchJson(url) {
+  let lastErr = new Error('steam upstream 未执行')
+  for (let i = 0; i <= RETRY_DELAYS_MS.length; i++) {
+    try {
+      return await fetchOnce(url)
+    } catch (e) {
+      lastErr = e
+      const message = describeError(e)
+      const status = Number(/HTTP (\d{3})/.exec(message)?.[1] ?? 0)
+      const worthRetry = status === 0 || status === 429 || status >= 500
+      if (!worthRetry || i === RETRY_DELAYS_MS.length) break
+      await sleep(RETRY_DELAYS_MS[i])
+    }
+  }
+  throw lastErr
 }
 
 /**
@@ -95,13 +131,13 @@ function workerCache() {
       const hit = await store.match(key)
       return hit ? await hit.json() : null
     },
-    async put(key, data) {
+    async put(key, data, maxAge = CACHE_TTL_S) {
       await store.put(
         key,
         new Response(JSON.stringify(data), {
           headers: {
             'content-type': 'application/json; charset=utf-8',
-            'cache-control': `max-age=${CACHE_TTL_S}`,
+            'cache-control': `max-age=${maxAge}`,
           },
         }),
       )
@@ -195,6 +231,8 @@ export async function handleSteamRequest(request, env = {}, deps = {}) {
 
   const store = deps.cache ?? workerCache()
   const cacheKey = `https://blog-api.internal/steam/${id}/${count}`
+  /* 上一份「成功」的数据存 7 天：上游抽风时拿它顶上，卡片不至于整块变灰 */
+  const staleKey = `https://blog-api.internal/steam-last-good/${id}/${count}`
   const cacheHeaders = { 'cache-control': `public, max-age=${CACHE_TTL_S}` }
 
   if (store) {
@@ -212,13 +250,29 @@ export async function handleSteamRequest(request, env = {}, deps = {}) {
     if (store) {
       try {
         await store.put(cacheKey, data)
+        /* ★ 只把「确实拿到了数据」的版本留成 last-good：
+           私密 / 拿不到 games 的结果存进去没有意义，反而会顶掉好数据 */
+        if (!data.error) await store.put(staleKey, data, STALE_TTL_S)
       } catch (e) {
         console.warn('[steam] 写缓存失败（不影响本次响应）：', e)
       }
     }
     return json({ ...data, cached: false }, { headers: cacheHeaders })
   } catch (e) {
-    /* 上游挂了就如实回 502，让卡片自己决定怎么显示 —— 不编假数据 */
+    /* 重试也没救回来 —— 先拿上一份成功数据顶上，真没有才回 502 */
+    if (store) {
+      try {
+        const stale = await store.get(staleKey)
+        if (stale) {
+          return json(
+            { ...stale, cached: true, stale: true, detail: describeError(e) },
+            { headers: cacheHeaders },
+          )
+        }
+      } catch (err) {
+        console.warn('[steam] 读 last-good 失败：', err)
+      }
+    }
     return json({ error: 'upstream', detail: describeError(e) }, { status: 502 })
   }
 }

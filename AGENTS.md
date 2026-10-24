@@ -1353,6 +1353,15 @@ links:                                    # 可选：YAML 数组
   连 `games` 字段都没有）⇒ 不主动判空就会显示一张空卡（`steam.js` 里最值钱的几行就是这两条判空）。
 - `steam.ts` 里有 5 分钟模块级缓存 + 并发去重（与 Worker 的 `CACHE_TTL_S = 300` 对齐）；
   `upstream` / 网络失败**不进缓存**（瞬时状态，刷新就该重试）。
+- ★★ **2026-10-24：上游偶发失败已做两层兜底**（用户 m03975「偶尔不能用 steam web api」）：
+  ① `fetchJson()` 对「可能自己好」的错误重试两次（`RETRY_DELAYS_MS = [250, 700]`）——
+  网络错误 / 超时 / 429 / 5xx 重试，4xx 不重试（key 错、id 错重试三次也是白跑）；
+  ② 成功的数据额外写一份到 `…/steam-last-good/<id>/<count>`（`STALE_TTL_S = 7 天`），
+  重试全失败时回这份旧数据 + `stale: true` + `detail`，**只有连旧数据都没有才回 502**。
+  ⇒ 卡片在 Steam 抽风时显示的是「上一次的真实数据」，不再是「加载失败了😫」。
+  ★ 只把 `error === null` 的结果写成 last-good：私密 / 拿不到 `games` 的响应存进去会顶掉好数据。
+- ★ **Steam Web API 的 500/503 是常态级偶发**（尤其 `GetRecentlyPlayedGames`），别把单次失败
+  当成 key 配错 —— 先看 `detail` 里的 HTTP 码。
 - 布局：>1279px 它是**右栏**一张卡（240 宽，与左栏镜像对称，见 §5.13）；≤1279px 单栏时它独占一整行、
   与面板同宽同位置（`.steam-side` 那一档）。SteamCard 自己在 ≤1279px 把列表改成
   `repeat(auto-fit, minmax(10rem, 1fr))`，宽卡一行放 3 款游戏。
