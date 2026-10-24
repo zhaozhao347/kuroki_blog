@@ -2,16 +2,19 @@
  * 曲目表 —— 站点上能播的歌，只有这一处清单。
  *
  * ── 音频从哪来 ──
- *   仓库里**没有任何 mp3**（2026-10-08 起改为接网易云）。播放时音频来自自建端点：
+ *   仓库里**没有任何 mp3**（2026-10-08 起改为接网易云）。
  *
- *     <VITE_MUSIC_ENDPOINT>/stream?id=<网易云歌曲id>
+ *   · 本地 dev：`/music/stream?id=<id>`，由 `plugins/vite-plugin-api-proxy.ts`
+ *     用 `workers/api/src/netease.js` 的**同一份实现**顶替，所以 `npm run dev`
+ *     不需要先部署。
+ *   · 线上：默认走**公共镜像** `https://api.injahow.cn/meting/?type=url&id=<id>`
+ *     （302 到网易云 CDN，见下方 `MIRROR`）；配了 `VITE_MUSIC_ENDPOINT` 就用自建端点。
  *
- *   端点在 `workers/api/`（Cloudflare Worker）；本地 dev 由
- *   `plugins/vite-plugin-api-proxy.ts` 用**同一份实现**顶替，所以
- *   `npm run dev` 不需要先部署。
- *
- *   ★ 为什么必须自建端点：网易云 playurl 接口不给 CORS 头（浏览器自己解析不了），
- *     返回的直链带 IP 令牌、20 分钟就过期，而且是 http（https 站点会拦混合内容）。
+ *   ★ 为什么线上不用自建 Worker：它跑在 Cloudflare 境外机房，网易云对境外 IP 的
+ *     playurl 直接回 `404`（开 Smart Placement 后是 `-462` 风控码）—— 这是地域限制，
+ *     不是代码问题；同一接口从大陆 IP 请求是 `code=200` + 320 kbps 直链。
+ *   ★ 网易云 playurl 不给 CORS 头（浏览器自己解析不了），返回的直链带 IP 令牌、
+ *     20 分钟过期，而且可能是 http —— 所以只能「让服务端换一个 https 直链再 302」。
  *
  * ── 加 / 换一首歌 ──
  *   ① 往下面 `songs` 里加一项（`id` 必填，其余是**手写**的显示用元数据）
@@ -64,23 +67,36 @@ const songs: Song[] = [
 
 /**
  * 端点地址。尾部斜杠先剥掉，拼 `url` 时才不会出现 `//stream`。
- * ★ dev 下没配就默认 `/music`（走本地中间件）；生产没配就是空 —— 曲目表为空，
- *   MusicBar 给出配置提示。这样「忘了配」是**看得见**的，不是静默的静音。
+ * ★ dev 下没配就默认 `/music`（走本地中间件）。
  */
 const endpoint = (import.meta.env.VITE_MUSIC_ENDPOINT ?? '').trim().replace(/\/+$/, '')
 const base = endpoint || (import.meta.env.DEV ? '/music' : '')
 
+/**
+ * 线上兜底：**公共网易云镜像**（Meting 风格：`?type=url&id=` 直接 302 到 mp3）。
+ *
+ * ★ 为什么不用自家 Worker：Worker 跑在 Cloudflare 境外机房，网易云对境外 IP 的
+ *   playurl 直接回 `404`（开 Smart Placement 后变成 `-462` 风控码），救不回来。
+ *   公共镜像的出口在国内，能正常换到直链。
+ * ★ 为什么是 302 而不是 Worker 转发字节：音频不经 Cloudflare，浏览器直接从
+ *   网易云 CDN 下载 —— 实测 CDN 带 `Access-Control-Allow-Origin: *`（Web Audio
+ *   能取到数据、波形可用），也支持 `Range`（拖进度条正常）。
+ * ★ 风险：公益镜像可能哪天挂。挂了就换一个域名，或改回自建端点。
+ */
+const MIRROR = 'https://api.injahow.cn/meting/?type=url&id='
+
 /** 拼好的曲目表（player.ts 直接用它建播放列表） */
-export const tracks: Track[] = base
-  ? songs.map((song) => ({
-      slug: song.slug,
-      url: `${base}/stream?id=${encodeURIComponent(song.id)}`,
-      title: song.title,
-      artist: song.artist,
-      album: song.album,
-      year: song.year,
-      duration: song.duration,
-    }))
-  : []
+export const tracks: Track[] = songs.map((song) => {
+  const id = encodeURIComponent(song.id)
+  return {
+    slug: song.slug,
+    url: base ? `${base}/stream?id=${id}` : `${MIRROR}${id}`,
+    title: song.title,
+    artist: song.artist,
+    album: song.album,
+    year: song.year,
+    duration: song.duration,
+  }
+})
 
 export const total = tracks.length
