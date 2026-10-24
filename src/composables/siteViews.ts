@@ -36,10 +36,11 @@ const ENDPOINT = ENV_ENDPOINT || (import.meta.env.PROD ? PROD_FALLBACK : '')
 /** 端点配了没？没配时组件直接显示 `—`，且一次请求都不发 */
 export const hasViewsEndpoint = ENDPOINT.length > 0
 
-/** 计数端点是外部依赖，8s 拿不到就当没有 —— 不能让卡片一直等。
- *  ★ 4s 太小了：线上实测这台 Worker 冷启动时单次要 3.4s，手机上再叠加移动网络
- *    经常正好卡在 4s 被 abort，统计卡就一直显示 `—`（用户 m04376 报的「手机端失效」）。 */
-const TIMEOUT_MS = 8000
+/** 计数端点是外部依赖，12s 拿不到就当没有 —— 不能让卡片一直等。
+ *  ★ 4s / 8s 都实测不够：线上这台 Worker 冷启动时单次要 3.4s，偶发到 8s 以上，
+ *    手机上再叠加移动网络经常正好卡在超时被 abort，统计卡就一直显示 `—`
+ *    （用户 m04376 报的「手机端失效」）。有 localStorage 兜底后，长超时不再影响观感。 */
+const TIMEOUT_MS = 12000
 
 /** 上一次成功读到的浏览量（localStorage）。
  *  ★ 目的是**首屏立刻有数**：等 3~4s 才从 `—` 变成数字，看起来就像坏了。
