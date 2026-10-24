@@ -80,8 +80,15 @@ export default {
   fetch(request, env, ctx) {
     if (request.method === 'OPTIONS') return preflight()
 
-    const path = (new URL(request.url).pathname.replace(/\/+$/, '') || '/').toLowerCase()
-    const head = path.split('/').filter(Boolean)[0] ?? ''
+    /* ★★ 同源挂载（2026-10-25）：`https://kuroki.top/api/*` 与 `https://api.kuroki.top/*` 等价。
+       为什么要多这一条：api.kuroki.top 是**另一个 origin**，浏览器要另开一条 TLS 连接，
+       而从国内实测这条连接经常 3~25s 才建起来（甚至超时）—— 页面本身却很快，
+       因为主站连接早就建好了。改成同源之后，请求复用页面那条 HTTP/2 连接，
+       少一次 DNS + 握手，统计卡与 Steam 卡才稳定拿到数据。
+       前缀只在这里剥一层，下面的路由逻辑一行没动。 */
+    const segments = new URL(request.url).pathname.split('/').filter(Boolean)
+    const prefixed = (segments[0] ?? '').toLowerCase() === 'api'
+    const head = (prefixed ? segments[1] : segments[0] ?? '').toLowerCase()
 
     switch (head) {
       case 'views': {

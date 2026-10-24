@@ -29,8 +29,9 @@
 /** 端点地址（末尾斜杠先去掉，免得拼出 `//`） */
 const ENV_ENDPOINT = (import.meta.env.VITE_STEAM_ENDPOINT ?? '').trim().replace(/\/+$/, '')
 
-/* 线上兜底，理由同 `siteViews.ts`：漏配构建变量时不该整张卡消失。 */
-const PROD_FALLBACK = 'https://api.kuroki.top/steam'
+/* 线上兜底，理由同 `siteViews.ts`：既不能漏配就整张卡消失，也不能让浏览器
+   为 api.kuroki.top 另开一条（国内经常 3~25s 才建起来的）连接 —— 用同源 `/api/steam`。 */
+const PROD_FALLBACK = '/api/steam'
 
 const ENDPOINT = ENV_ENDPOINT || (import.meta.env.PROD ? PROD_FALLBACK : '')
 

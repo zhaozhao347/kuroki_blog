@@ -36,6 +36,13 @@ placement = { mode = "smart" }
 #   所以线上必须走这个自定义域。
 routes = [
   { pattern = "api.kuroki.top", custom_domain = true },
+  # ★ 同源挂载（2026-10-25）：主站域名下的 `/api/*` 也交给这个 Worker。
+  #   起因：api.kuroki.top 是**另一个 origin**，浏览器要为它单开一条 TLS 连接；
+  #   国内实测这条连接经常 3~25s 才建起来（页面本身很快，因为主站连接早就建好了）。
+  #   改走同源后复用页面那条 HTTP/2 连接，少一次 DNS + 握手。
+  #   前端 PROD 下默认用的就是 `/api/views`、`/api/steam`（见 siteViews.ts / steam.ts）。
+  #   ★ 前缀只在这一个地方剥一层：src/index.js 的 fetch 里判断首段是不是 `api`。
+  { pattern = "kuroki.top/api/*", zone_name = "kuroki.top" },
 ]
 
 # ── 存储 ────────────────────────────────────────────────────────────────

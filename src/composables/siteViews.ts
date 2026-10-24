@@ -29,7 +29,11 @@ const ENV_ENDPOINT = (import.meta.env.VITE_VIEWS_ENDPOINT ?? '').trim().replace(
 /* 线上兜底：这份代码就是给 kuroki.top 用的，仓库 Variables 没配时直接走 Worker 的自定义域。
    ★ 之所以不强制依赖构建变量：漏配时整站会「静默不显示浏览量」，比写死一个域名更难排查。
    ★ dev 不受影响 —— 那里走 `plugins/vite-plugin-api-proxy.ts` 的 `/views` 中间件。 */
-const PROD_FALLBACK = 'https://api.kuroki.top/views'
+/* ★★ 用**同源**的 `/api/views`，不是 `https://api.kuroki.top/views`：
+   后者是另一个 origin，浏览器要另开一条 TLS 连接，国内实测经常 3~25s 才建起来
+   （页面本身却很快）—— 统计卡因此常显示 `—`。同源请求复用页面那条连接。
+   Worker 侧在 `workers/api/src/index.js` 里把首段 `/api` 剥掉后按原路由分发。 */
+const PROD_FALLBACK = '/api/views'
 
 const ENDPOINT = ENV_ENDPOINT || (import.meta.env.PROD ? PROD_FALLBACK : '')
 
