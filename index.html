@@ -61,8 +61,31 @@
     -->
     <script>
       ;(function () {
-        var raw = new URLSearchParams(location.search).get('redirect')
-        if (raw && raw.charAt(0) === '/') history.replaceState(null, '', raw)
+        /* ★ 校验必须严格：`//evil.com`（协议相对）、`/\evil.com`（反斜杠归一成斜杠）
+           都会把地址解析成**站外**。replaceState 跨源会直接抛 SecurityError，
+           而这个脚本在 head 里、抛错就是白屏 —— 扫描器把这种「可控跳转 + 白屏」
+           报成 XSS/开放重定向。这里只认「同源、单斜杠、无控制字符」的路径。
+           （微信把 kuroki.top 判成「存在 XSS 漏洞」时，唯一可注入的点就是这里。） */
+        function safePath(raw) {
+          if (!raw || raw.length > 300) return null
+          if (raw.charAt(0) !== '/' || raw.charAt(1) === '/') return null
+          if (/[\\\u0000-\u001f\u007f]/.test(raw)) return null
+          try {
+            var u = new URL(raw, location.origin)
+            if (u.origin !== location.origin) return null
+            return u.pathname + u.search + u.hash
+          } catch (e) {
+            return null
+          }
+        }
+        var target = safePath(new URLSearchParams(location.search).get('redirect'))
+        if (target) {
+          try {
+            history.replaceState(null, '', target)
+          } catch (e) {
+            /* 改不动就留着原地址，宁可回到首页也不要白屏 */
+          }
+        }
       })()
     </script>
   </head>

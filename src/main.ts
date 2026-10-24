@@ -25,7 +25,7 @@ import { vImgFallback } from './directives/imgFallback'
  *   （曾经有 src/api、src/stores、src/types，已在收尾时删除。）
  *   以后真接后端时再加 createPinia() 与 api 层即可。 */
 
-/* ★★ 处理 GitHub Pages 的深链接回跳。
+/* ★★ 处理 GitHub Pages 的深链接回跳（兜底，规则与 index.html 里那段完全一致）。
  *
  *   Pages 没有服务端路由：直接访问 /articles/hello 会命中 404.html，
  *   而 404.html 会把路径塞进 `?redirect=<原路径>` 回到 index.html
@@ -36,12 +36,30 @@ import { vImgFallback } from './directives/imgFallback'
  *      之前求值，`createWebHistory()` 一被调用就把 location 记成 `/`；随后 router
  *      初始化会 replaceState 回 `?redirect=…`，把这里刚改好的地址又写回去
  *      （实测：`location.href` 从 /about 被改回 `?redirect=%2Fabout`，页面留在首页）。
- *      保留这段只为兜底（例如内联脚本被 CSP 拦掉、或页面被别的容器注入）。 */
-const params = new URLSearchParams(window.location.search)
-const redirect = params.get('redirect')
-if (redirect && redirect.startsWith('/')) {
+ *      保留这段只为兜底（例如内联脚本被 CSP 拦掉、或页面被别的容器注入）。
+ *
+ *   ★★ 校验必须严格（`//host`、`/\host` 都能跳出站）：微信把这个站判成
+ *      「存在 XSS/开放重定向」，唯一可注入的点就是 `?redirect=`。 */
+function safeRedirectPath(raw: string | null): string | null {
+  if (!raw || raw.length > 300) return null
+  if (raw.charAt(0) !== '/' || raw.charAt(1) === '/') return null
+  if (/[\\\u0000-\u001f\u007f]/.test(raw)) return null
+  try {
+    const u = new URL(raw, window.location.origin)
+    return u.origin === window.location.origin ? u.pathname + u.search + u.hash : null
+  } catch {
+    return null
+  }
+}
+
+const redirect = safeRedirectPath(new URLSearchParams(window.location.search).get('redirect'))
+if (redirect) {
   /* 用 replace 而不是 push：不要在历史里留一条 `/?redirect=...` */
-  window.history.replaceState(null, '', redirect)
+  try {
+    window.history.replaceState(null, '', redirect)
+  } catch {
+    /* 改不动就留着原地址，别让整个应用挂掉 */
+  }
 }
 
 const app = createApp(App)
