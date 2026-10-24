@@ -36,8 +36,34 @@ const ENDPOINT = ENV_ENDPOINT || (import.meta.env.PROD ? PROD_FALLBACK : '')
 /** 端点配了没？没配时组件直接显示 `—`，且一次请求都不发 */
 export const hasViewsEndpoint = ENDPOINT.length > 0
 
-/** 计数端点是外部依赖，4s 拿不到就当没有 —— 不能让卡片一直等 */
-const TIMEOUT_MS = 4000
+/** 计数端点是外部依赖，8s 拿不到就当没有 —— 不能让卡片一直等。
+ *  ★ 4s 太小了：线上实测这台 Worker 冷启动时单次要 3.4s，手机上再叠加移动网络
+ *    经常正好卡在 4s 被 abort，统计卡就一直显示 `—`（用户 m04376 报的「手机端失效」）。 */
+const TIMEOUT_MS = 8000
+
+/** 上一次成功读到的浏览量（localStorage）。
+ *  ★ 目的是**首屏立刻有数**：等 3~4s 才从 `—` 变成数字，看起来就像坏了。
+ *    读失败也不会显示错（只是把旧值留在那儿，下一次成功就覆盖）。 */
+const CACHE_KEY = 'kuroki:views'
+
+function remember(views: number): void {
+  try {
+    localStorage.setItem(CACHE_KEY, String(views))
+  } catch {
+    /* 隐私模式 / 配额满 —— 只是少一层缓存，不影响功能 */
+  }
+}
+
+/** 上次成功读到的值（没有就 null） */
+export function lastKnownViews(): number | null {
+  try {
+    const raw = localStorage.getItem(CACHE_KEY)
+    const n = raw === null ? NaN : Number(raw)
+    return Number.isFinite(n) && n >= 0 ? n : null
+  } catch {
+    return null
+  }
+}
 
 async function request(method: 'GET' | 'POST'): Promise<number | null> {
   if (!ENDPOINT) return null
@@ -58,7 +84,9 @@ async function request(method: 'GET' | 'POST'): Promise<number | null> {
 
     const data: unknown = await res.json()
     const views = (data as { views?: unknown } | null)?.views
-    return typeof views === 'number' && Number.isFinite(views) ? views : null
+    if (typeof views !== 'number' || !Number.isFinite(views)) return null
+    remember(views)
+    return views
   } catch {
     return null
   } finally {

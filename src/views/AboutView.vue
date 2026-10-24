@@ -531,6 +531,23 @@ function isMailLink(href: string): boolean {
     container-type: inline-size;
   }
 
+  /* ★★ 手机上（≤560px）两张卡**不再并排**。
+     并排时每张只有半幅宽（390 屏实测 169px、375 屏 162px、360 屏 154px），
+     而三个图标按钮要 3 × 2.4rem + 2 × 0.35rem ≈ 126px —— 375 及以下就会折成两行
+     （用户 m04378：「github steam email 的 icon 竟然不是并排的」），
+     站点统计卡也会被挤成一条窄缝（「没有占满整个卡面」）。
+     改成上下堆叠、各占整行；平板（561~1279px）仍保持并排。 */
+  @media (max-width: 560px) {
+    .profile {
+      flex-direction: column;
+    }
+
+    .profile > * {
+      flex: 0 0 auto;
+      width: 100%;
+    }
+  }
+
   .profile-card {
     flex-direction: row;
     align-items: center;

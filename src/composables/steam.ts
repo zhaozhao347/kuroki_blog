@@ -154,6 +154,36 @@ function parse(data: unknown): SteamSnapshot {
 let cache: { at: number; data: SteamSnapshot } | null = null
 let inflight: Promise<SteamSnapshot> | null = null
 
+/* ── 上次成功的那一份（localStorage） ──────────────────────────
+ * ★ 用途：Steam Web API / 边缘节点偶发抽风时，**别把卡片变成「加载失败了😫」**，
+ *   而是继续显示上一次的真实数据（最多 24 小时前）。
+ *   用户 m03975「我现在偶尔不能用 steam web api 获取我的游玩信息」就是要这个行为：
+ *   偶发失败对访客不可见，只有从没成功过才显示兜底文案。 */
+const LAST_GOOD_KEY = 'kuroki:steam:v1'
+const LAST_GOOD_MAX_AGE_MS = 86_400_000
+
+function rememberLastGood(snap: SteamSnapshot): void {
+  try {
+    const data = { profile: snap.profile, recent: snap.recent, updatedAt: snap.updatedAt }
+    localStorage.setItem(LAST_GOOD_KEY, JSON.stringify({ at: Date.now(), data }))
+  } catch {
+    /* 隐私模式 / 配额满 —— 少一层兜底而已，不影响功能 */
+  }
+}
+
+function recallLastGood(): SteamSnapshot | null {
+  try {
+    const raw = localStorage.getItem(LAST_GOOD_KEY)
+    if (!raw) return null
+    const saved = JSON.parse(raw) as { at?: unknown; data?: unknown }
+    if (typeof saved.at !== 'number' || Date.now() - saved.at > LAST_GOOD_MAX_AGE_MS) return null
+    const snap = parse(saved.data)
+    return snap.profile || snap.recent.length ? snap : null
+  } catch {
+    return null
+  }
+}
+
 /**
  * 读一份 Steam 快照。
  * ★ 返回 `null` 只有一种情况：**没配端点**。端点配了但失败会返回带 `error` 的快照
@@ -178,10 +208,15 @@ export async function readSteam(force = false): Promise<SteamSnapshot | null> {
       })
       const data: unknown = await res.json().catch(() => null)
       const snap = parse(data)
-      if (!TRANSIENT.has(snap.error)) cache = { at: Date.now(), data: snap }
+      if (!TRANSIENT.has(snap.error)) {
+        cache = { at: Date.now(), data: snap }
+        if (snap.profile || snap.recent.length) rememberLastGood(snap)
+      }
       return snap
     } catch {
-      /* 超时 / 跨域失败 / 端点没起 —— 都是「暂时取不到」，不进缓存 */
+      /* 超时 / 跨域失败 / 端点没起 —— 都是「暂时取不到」，先进缓存兜底再报错 */
+      const stale = recallLastGood()
+      if (stale) return stale
       return { profile: null, recent: [], updatedAt: '', error: 'network', cached: false }
     } finally {
       clearTimeout(timer)

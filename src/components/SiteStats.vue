@@ -16,7 +16,7 @@
 import { computed, onMounted, ref } from 'vue'
 
 import { siteStats } from '@/posts'
-import { readSiteViews } from '@/composables/siteViews'
+import { lastKnownViews, readSiteViews } from '@/composables/siteViews'
 
 /** 24×24 描边图标（stroke 走 currentColor，纯几何形状，不引依赖） */
 const ICONS: Record<string, string> = {
@@ -29,8 +29,9 @@ const ICONS: Record<string, string> = {
 /** 千分位（22,546） */
 const num = (n: number): string => n.toLocaleString('en-US')
 
-/** 浏览量：`null` = 还没有数（端点没配 / 没回来 / 出错）⇒ 显示 —，绝不显示 0 或 NaN */
-const views = ref<number | null>(null)
+/** 浏览量：`null` = 还没有数（端点没配 / 没回来 / 出错）⇒ 显示 —，绝不显示 0 或 NaN
+ *  ★ 初值先用上次成功读到的旧值，避免「先显示 — 、3 秒后才变数字」看起来像坏了。 */
+const views = ref<number | null>(lastKnownViews())
 
 onMounted(async () => {
   views.value = await readSiteViews()
