@@ -29,16 +29,24 @@ const ENV_ENDPOINT = (import.meta.env.VITE_VIEWS_ENDPOINT ?? '').trim().replace(
 /* 线上兜底：这份代码就是给 kuroki.top 用的，仓库 Variables 没配时直接走 Worker 的自定义域。
    ★ 之所以不强制依赖构建变量：漏配时整站会「静默不显示浏览量」，比写死一个域名更难排查。
    ★ dev 不受影响 —— 那里走 `plugins/vite-plugin-api-proxy.ts` 的 `/views` 中间件。 */
-/* ★★ 用**同源**的 `/api/views`，不是 `https://api.kuroki.top/views`：
-   后者是另一个 origin，浏览器要另开一条 TLS 连接，国内实测经常 3~25s 才建起来
-   （页面本身却很快）—— 统计卡因此常显示 `—`。同源请求复用页面那条连接。
-   Worker 侧在 `workers/api/src/index.js` 里把首段 `/api` 剥掉后按原路由分发。 */
-const PROD_FALLBACK = '/api/views'
+/* ★★ 线上端点按顺序试：
+ *   ① 同源 `/api/views` —— 主站域名走 Cloudflare 代理（橙云）时最理想：复用页面那条
+ *      HTTP/2 连接，少一次 DNS + 握手。之前用 `api.kuroki.top` 时，国内实测这条
+ *      独立连接经常 3~25s 才建起来，统计卡就一直显示 `—`。
+ *   ② `https://api.kuroki.top/views` —— 主站还是**灰云**（DNS-only，直连 GitHub Pages）
+ *      时 ① 根本不会命中 Worker（请求压根不经过 Cloudflare），此时必须退回旧端点。
+ *   两个都失败才显示 `—`。
+ *   ★ 等域名切到橙云后 ① 命中，② 自然不会被用到，不用再改代码。 */
+const PROD_ENDPOINTS = ['/api/views', 'https://api.kuroki.top/views']
 
-const ENDPOINT = ENV_ENDPOINT || (import.meta.env.PROD ? PROD_FALLBACK : '')
+const ENDPOINTS: string[] = ENV_ENDPOINT
+  ? [ENV_ENDPOINT]
+  : import.meta.env.PROD
+    ? PROD_ENDPOINTS
+    : []
 
 /** 端点配了没？没配时组件直接显示 `—`，且一次请求都不发 */
-export const hasViewsEndpoint = ENDPOINT.length > 0
+export const hasViewsEndpoint = ENDPOINTS.length > 0
 
 /** 计数端点是外部依赖，12s 拿不到就当没有 —— 不能让卡片一直等。
  *  ★ 4s / 8s 都实测不够：线上这台 Worker 冷启动时单次要 3.4s，偶发到 8s 以上，
@@ -71,12 +79,21 @@ export function lastKnownViews(): number | null {
 }
 
 async function request(method: 'GET' | 'POST'): Promise<number | null> {
-  if (!ENDPOINT) return null
+  if (!ENDPOINTS.length) return null
 
+  for (const endpoint of ENDPOINTS) {
+    const got = await requestOne(endpoint, method)
+    if (got !== null) return got
+  }
+  return null
+}
+
+/** 打一个端点；拿不到合法的 `{ views: number }` 就返回 null（交给下一个候选） */
+async function requestOne(endpoint: string, method: 'GET' | 'POST'): Promise<number | null> {
   const ctrl = new AbortController()
   const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS)
   try {
-    const res = await fetch(ENDPOINT, {
+    const res = await fetch(endpoint, {
       method,
       signal: ctrl.signal,
       // 计数每次都要真数，别走 HTTP 缓存

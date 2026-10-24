@@ -29,14 +29,20 @@
 /** 端点地址（末尾斜杠先去掉，免得拼出 `//`） */
 const ENV_ENDPOINT = (import.meta.env.VITE_STEAM_ENDPOINT ?? '').trim().replace(/\/+$/, '')
 
-/* 线上兜底，理由同 `siteViews.ts`：既不能漏配就整张卡消失，也不能让浏览器
-   为 api.kuroki.top 另开一条（国内经常 3~25s 才建起来的）连接 —— 用同源 `/api/steam`。 */
-const PROD_FALLBACK = '/api/steam'
+/* 线上端点按顺序试（理由同 `siteViews.ts`）：
+ *   ① 同源 `/api/steam` —— 主站走 Cloudflare 代理时最理想（复用页面连接）；
+ *   ② `https://api.kuroki.top/steam` —— 主站还是灰云（DNS-only，直连 Pages）时
+ *      ① 压根不经过 Cloudflare、只会拿到 404.html，必须退回旧端点。 */
+const PROD_ENDPOINTS = ['/api/steam', 'https://api.kuroki.top/steam']
 
-const ENDPOINT = ENV_ENDPOINT || (import.meta.env.PROD ? PROD_FALLBACK : '')
+const ENDPOINTS: string[] = ENV_ENDPOINT
+  ? [ENV_ENDPOINT]
+  : import.meta.env.PROD
+    ? PROD_ENDPOINTS
+    : []
 
 /** 端点配了没？没配时卡片整个不渲染，且一次请求都不发 */
-export const hasSteamEndpoint = ENDPOINT.length > 0
+export const hasSteamEndpoint = ENDPOINTS.length > 0
 
 /** 外部依赖，6s 拿不到就当没有（Steam 偶尔很慢，别让卡片一直等） */
 const TIMEOUT_MS = 6000
@@ -191,37 +197,44 @@ function recallLastGood(): SteamSnapshot | null {
  *   （卡片据此显示「私密」「取不到」等状态，而不是静默消失）。
  */
 export async function readSteam(force = false): Promise<SteamSnapshot | null> {
-  if (!ENDPOINT) return null
+  if (!ENDPOINTS.length) return null
 
   if (!force && cache && Date.now() - cache.at < CACHE_TTL_MS) return cache.data
   if (!force && inflight) return inflight
 
-  const ctrl = new AbortController()
-  const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS)
-
   const run = (async (): Promise<SteamSnapshot> => {
-    try {
-      const res = await fetch(ENDPOINT, {
-        signal: ctrl.signal,
-        // 缓存由 Worker 负责，这里别叠 HTTP 缓存（否则 dev 下改了假数据刷不出来）
-        cache: 'no-store',
-        credentials: 'omit',
-      })
-      const data: unknown = await res.json().catch(() => null)
-      const snap = parse(data)
-      if (!TRANSIENT.has(snap.error)) {
-        cache = { at: Date.now(), data: snap }
-        if (snap.profile || snap.recent.length) rememberLastGood(snap)
+    for (const endpoint of ENDPOINTS) {
+      const ctrl = new AbortController()
+      const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS)
+      try {
+        const res = await fetch(endpoint, {
+          signal: ctrl.signal,
+          // 缓存由 Worker 负责，这里别叠 HTTP 缓存（否则 dev 下改了假数据刷不出来）
+          cache: 'no-store',
+          credentials: 'omit',
+        })
+        const data: unknown = await res.json().catch(() => null)
+        /* ★ 非 JSON（灰云时 `/api/steam` 拿到的是 404.html）⇒ 换下一个候选 */
+        if (!data || typeof data !== 'object') continue
+
+        const snap = parse(data)
+        if (!TRANSIENT.has(snap.error)) {
+          cache = { at: Date.now(), data: snap }
+          if (snap.profile || snap.recent.length) rememberLastGood(snap)
+        }
+        return snap
+      } catch {
+        /* 超时 / 跨域失败 / 端点没起 —— 换下一个候选 */
+        continue
+      } finally {
+        clearTimeout(timer)
       }
-      return snap
-    } catch {
-      /* 超时 / 跨域失败 / 端点没起 —— 都是「暂时取不到」，先进缓存兜底再报错 */
-      const stale = recallLastGood()
-      if (stale) return stale
-      return { profile: null, recent: [], updatedAt: '', error: 'network', cached: false }
-    } finally {
-      clearTimeout(timer)
     }
+
+    /* 所有候选都拿不到 —— 用上一次成功的快照兜底（最多 24h 前） */
+    const stale = recallLastGood()
+    if (stale) return stale
+    return { profile: null, recent: [], updatedAt: '', error: 'network', cached: false }
   })()
 
   inflight = run
