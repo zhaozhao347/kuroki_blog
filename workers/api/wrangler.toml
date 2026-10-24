@@ -42,13 +42,11 @@ routes = [
 # 三件事里只有浏览量要持久化（一个 key）。音乐不用 KV（直链只缓存在 isolate 内存
 # 15 分钟），Steam 也不用（走 caches.default，5 分钟）。
 # ★ 只有「浏览量」需要 KV；不绑定也能部署，`/views` 会回 503 并说明缺什么。
-# ★ 2026-10-24 暂时注释：控制台里还没建 namespace，留着占位符会让 deploy 直接失败。
-#   缺这块**不会**让部署失败 —— `views.js` 会回 503 并写明「需要绑定名为 VIEWS 的 KV」，
-#   但「浏览量」会一直显示 0。拿到 Namespace ID 后把下面三行取消注释、填上 id 即可。
-#
-# [[kv_namespaces]]
-# binding = "VIEWS"
-# id = "在这里填 32 位 Namespace ID"
+# ★ 2026-10-24 已接入（Namespace 名 VIEWS）。没这块时 `/views` 一直 503，
+#   「关于」页的浏览量会显示 0。
+[[kv_namespaces]]
+binding = "VIEWS"
+id = "200f6ba42b7f42fab85deb011f674a09"
 
 [vars]
 # 只允许这些网易云歌曲 id 走这个代理（逗号分隔）。
