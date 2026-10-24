@@ -20,6 +20,14 @@ name = "kuroki-blog"
 main = "src/index.js"
 compatibility_date = "2025-06-01"
 
+# 让 Worker 尽量跑在**离上游更近**的地方（music.163.com）。
+# ★ 起因：默认情况下 Worker 在接请求的机房执行（实测是 LAX），从美国 IP 打
+#   网易云 `/api/song/enhance/player/url/v1` 直接回 `code=404`（大陆 IP 同一请求是
+#   `code=200` 且有 320 kbps 直链）—— 也就是地域限制，不是代码问题。
+# ★ smart 只会去「离上游近」的机房（多半是 HKG/SIN），**不保证**进大陆；
+#   如果实测仍是 404，说明这条链路救不回来，得换方案（自托管 mp3）。
+placement = { mode = "smart" }
+
 # 绑自定义域（Workers 侧）。`custom_domain = true` 会让 wrangler 自己建 DNS 记录 +
 # 申请证书，等价于控制台里「设置 → 域和路由 → 添加 → 自定义域」。
 # ★ 必须是**本账号下的 zone**，否则 deploy 会报找不到 zone。
