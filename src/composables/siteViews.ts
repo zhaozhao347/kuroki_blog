@@ -39,11 +39,17 @@ const ENV_ENDPOINT = (import.meta.env.VITE_VIEWS_ENDPOINT ?? '').trim().replace(
  *   ★ 等域名切到橙云后 ① 命中，② 自然不会被用到，不用再改代码。 */
 const PROD_ENDPOINTS = ['/api/views', 'https://api.kuroki.top/views']
 
-const ENDPOINTS: string[] = ENV_ENDPOINT
-  ? [ENV_ENDPOINT]
-  : import.meta.env.PROD
-    ? PROD_ENDPOINTS
-    : []
+/* ★★ 纯内网模式（`VITE_OFFLINE=1`，见 `deploy/local/`）：一个请求都不发，
+   统计卡直接显示 `—`。内网机器多半连不上外网，发出去只会白等 12 秒再失败。 */
+const OFFLINE = import.meta.env.VITE_OFFLINE === '1'
+
+const ENDPOINTS: string[] = OFFLINE
+  ? []
+  : ENV_ENDPOINT
+    ? [ENV_ENDPOINT]
+    : import.meta.env.PROD
+      ? PROD_ENDPOINTS
+      : []
 
 /** 端点配了没？没配时组件直接显示 `—`，且一次请求都不发 */
 export const hasViewsEndpoint = ENDPOINTS.length > 0

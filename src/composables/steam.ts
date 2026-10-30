@@ -35,11 +35,17 @@ const ENV_ENDPOINT = (import.meta.env.VITE_STEAM_ENDPOINT ?? '').trim().replace(
  *      ① 压根不经过 Cloudflare、只会拿到 404.html，必须退回旧端点。 */
 const PROD_ENDPOINTS = ['/api/steam', 'https://api.kuroki.top/steam']
 
-const ENDPOINTS: string[] = ENV_ENDPOINT
-  ? [ENV_ENDPOINT]
-  : import.meta.env.PROD
-    ? PROD_ENDPOINTS
-    : []
+/* ★★ 纯内网模式（`VITE_OFFLINE=1`）：不发请求，卡片整块不渲染。
+   内网机器多半连不上外网（Steam 接口还要过 GFW），发出去只会白等到超时。 */
+const OFFLINE = import.meta.env.VITE_OFFLINE === '1'
+
+const ENDPOINTS: string[] = OFFLINE
+  ? []
+  : ENV_ENDPOINT
+    ? [ENV_ENDPOINT]
+    : import.meta.env.PROD
+      ? PROD_ENDPOINTS
+      : []
 
 /** 端点配了没？没配时卡片整个不渲染，且一次请求都不发 */
 export const hasSteamEndpoint = ENDPOINTS.length > 0

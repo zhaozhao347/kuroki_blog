@@ -20,9 +20,24 @@ import pagesPlugin from './vite-plugin-pages.js'
    于是本地不部署 Cloudflare 也能听歌、也能看到计数器在涨。理由见文件头注释。 */
 import apiDevProxy from './plugins/vite-plugin-api-proxy.js'
 
+/* 纯内网构建（`VITE_OFFLINE=1`，见 `deploy/local/`）时，index.html 里那两条
+   `preconnect api.kuroki.top` / `dns-prefetch api.injahow.cn` 没有任何意义 ——
+   内网机器连不上，浏览器还要白等一次 DNS 超时。构建时直接摘掉。 */
+function offlineHints() {
+  return {
+    name: 'offline-hints',
+    transformIndexHtml(html: string) {
+      if (process.env.VITE_OFFLINE !== '1') return html
+      return html
+        .replace(/[ \t]*<link rel="preconnect" href="https:\/\/api\.kuroki\.top"[^>]*>\r?\n?/g, '')
+        .replace(/[ \t]*<link rel="dns-prefetch" href="\/\/api\.injahow\.cn"[^>]*>\r?\n?/g, '')
+    },
+  }
+}
+
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [vue(), postsPlugin(), projectsPlugin(), pagesPlugin(), apiDevProxy()],
+  plugins: [vue(), postsPlugin(), projectsPlugin(), pagesPlugin(), apiDevProxy(), offlineHints()],
 
   /* ★ `base` 决定资源路径前缀。
    *

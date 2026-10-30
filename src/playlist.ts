@@ -73,6 +73,22 @@ const endpoint = (import.meta.env.VITE_MUSIC_ENDPOINT ?? '').trim().replace(/\/+
 const base = endpoint || (import.meta.env.DEV ? '/music' : '')
 
 /**
+ * 纯内网模式（`VITE_OFFLINE=1`，见 `deploy/local/`）：整个站不许有任何外网请求。
+ * 此时**默认没有歌**——镜子在公网，内网机器多半连不上，给一排点了没反应的按钮更糟。
+ */
+const OFFLINE = import.meta.env.VITE_OFFLINE === '1'
+
+/**
+ * 静态音频目录（可选）。配了就用 `${目录}${slug}.mp3`，音频文件自己丢进 nginx 的
+ * 那个目录即可（内网最省事的放歌方式，不需要任何接口）。
+ * 例：`VITE_MUSIC_BASE=/music/`
+ */
+const rawStaticBase = (import.meta.env.VITE_MUSIC_BASE ?? '').trim()
+/* ★ 空串必须留空：`''.replace(/\/?$/, '/')` 会得到 `'/'`，于是每首歌都被拼成
+   `/xxx.mp3` —— 内网版就莫名其妙地"有歌"了（点了当然 404）。 */
+const staticBase = rawStaticBase ? `${rawStaticBase.replace(/\/+$/, '')}/` : ''
+
+/**
  * 线上兜底：**公共网易云镜像**（Meting 风格：`?type=url&id=` 直接 302 到 mp3）。
  *
  * ★ 为什么不用自家 Worker：Worker 跑在 Cloudflare 境外机房，网易云对境外 IP 的
@@ -85,18 +101,38 @@ const base = endpoint || (import.meta.env.DEV ? '/music' : '')
  */
 const MIRROR = 'https://api.injahow.cn/meting/?type=url&id='
 
-/** 拼好的曲目表（player.ts 直接用它建播放列表） */
-export const tracks: Track[] = songs.map((song) => {
-  const id = encodeURIComponent(song.id)
-  return {
+/** 是否纯内网构建（`VITE_OFFLINE=1`）。视图层据此决定要不要摆音乐栏 */
+export const offline = OFFLINE
+
+/** 一首歌最终用哪个 URL；纯内网且没配静态目录时返回 null（这首直接不进列表） */
+function trackUrl(song: Song): string | null {
+  if (staticBase) return `${staticBase}${song.slug}.mp3`
+  /* ★ OFFLINE 必须排在 `base` 前面：`.env.local` 里写着 `VITE_MUSIC_ENDPOINT=/music`
+     （dev 用），而 Vite 在所有模式都会加载 `.env.local` —— 不先拦，内网版就会去请求
+     一个根本不存在的 `/music/stream`。 */
+  if (OFFLINE) return null
+  if (base) return `${base}/stream?id=${encodeURIComponent(song.id)}`
+  return `${MIRROR}${encodeURIComponent(song.id)}`
+}
+
+/** 组装一首 Track（可选字段只在有值时才挂上去，兼容 `exactOptionalPropertyTypes`） */
+function toTrack(song: Song, url: string): Track {
+  const track: Track = {
     slug: song.slug,
-    url: base ? `${base}/stream?id=${id}` : `${MIRROR}${id}`,
+    url,
     title: song.title,
     artist: song.artist,
-    album: song.album,
-    year: song.year,
-    duration: song.duration,
   }
+  if (song.album) track.album = song.album
+  if (song.year) track.year = song.year
+  if (song.duration) track.duration = song.duration
+  return track
+}
+
+/** 拼好的曲目表（player.ts 直接用它建播放列表） */
+export const tracks: Track[] = songs.flatMap((song) => {
+  const url = trackUrl(song)
+  return url ? [toTrack(song, url)] : []
 })
 
 export const total = tracks.length

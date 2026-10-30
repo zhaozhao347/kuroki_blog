@@ -1,0 +1,46 @@
+name: Sync local branch
+
+# main 每次 push 都把 main 合并进 local 并推回远端 —— 内网版不用手动跟。
+# 工作流本身必须在 main 上（push 事件只认收到 push 的那个分支里的 workflow）。
+# 冲突时这个 job 会红：本地解掉冲突后 `git push origin local` 即可，下次照常。
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-local
+  cancel-in-progress: true
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Merge main into local
+        run: |
+          set -euo pipefail
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          if git fetch origin local; then
+            git checkout -B local origin/local
+            echo "把 origin/main 合并进 local"
+            git merge --no-edit origin/main
+          else
+            echo "远端还没有 local，用 main 建一个"
+            git checkout -B local origin/main
+          fi
+
+          git push origin local
+
+      - name: Summary
+        run: echo "local 已同步到 $(git rev-parse --short HEAD)"

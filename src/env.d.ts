@@ -35,6 +35,17 @@ interface ImportMetaEnv {
    *   才能拿到数据（key 只活在 Worker / dev 环境变量里，永远不进前端）。
    */
   readonly VITE_STEAM_ENDPOINT?: string
+  /**
+   * 纯内网模式。`'1'` = 全站零外网请求：浏览量、Steam、网易云镜像全部停用，
+   * 音乐只在配了 `VITE_MUSIC_BASE` 时才有（见下）。用于 `deploy/local/` 那套
+   * 「内网 nginx 直接托管」的构建。
+   */
+  readonly VITE_OFFLINE?: string
+  /**
+   * 静态音频目录（可选）。配了就走 `<目录><slug>.mp3`，音频文件自己丢进 nginx
+   * 的那个目录即可，不需要任何接口。例：`/music/`
+   */
+  readonly VITE_MUSIC_BASE?: string
 }
 
 interface ImportMeta {
