@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import InitialLetter from '@/components/InitialLetter.vue'
 import MusicBar from '@/components/MusicBar.vue'
 import NextButton from '@/components/NextButton.vue'
@@ -7,6 +7,12 @@ import LyricStage from '@/components/LyricStage.vue'
 import SoundLine from '@/components/SoundLine.vue'
 import WaterBody from '@/components/WaterBody.vue'
 import { animate, prefersReducedMotion, scroll, whenBooted } from '@/composables/motion'
+import { hasTracks } from '@/composables/player'
+import { offline } from '@/playlist'
+
+/* 音乐栏要不要渲染：正常站点永远显示（没配端点时它自己会说明怎么配）；
+   纯内网版默认没有歌，就不摆一条「加载失败了」在那儿。 */
+const showMusic = computed(() => hasTracks.value || !offline)
 
 /* ★★★ 2026-09 用户 m06383 定案：**3D 舞台与碰撞逻辑全部删除**。
  *   原来的中心舞台（HeroStage + PlcStage 的 S7-1200、滚轮驱动的下落/砸水/定格）
@@ -434,8 +440,10 @@ onBeforeUnmount(() => {
         </div>
 
         <!-- 音乐栏：位于 Blog 大字下方（与 caption 之间）。
-             ★ 它是占位行而非单行 —— 见 .hero-music-row 的注释。 -->
-        <div class="hero-music-row">
+             ★ 它是占位行而非单行 —— 见 .hero-music-row 的注释。
+             ★ 纯内网构建（VITE_OFFLINE=1）默认没有歌，那一行会印出「加载失败了😫」，
+               在内网语境里是纯误导 —— 干脆整行不渲染。 -->
+        <div v-if="showMusic" class="hero-music-row">
           <MusicBar class="hero-music" />
         </div>
 
